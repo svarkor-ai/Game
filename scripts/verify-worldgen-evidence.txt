@@ -1,0 +1,18 @@
+=== WorldGen Ad-Hoc Verification ===
+Date: 2026-07-29
+Tool: Custom C# verification program compiled against Djurspel.WorldGen
+
+Dungeon Generation (80x60 grid):
+- Floor tiles: 532
+- Enemies spawned: 9
+- Loot spawned: 18
+- Player start: (74,38) — on floor tile
+- Dungeon boundaries: (3,2) to (76,57)
+- Result: PASS
+
+Wilderness Generation (50x50 grid):
+- Ground tiles: 1104
+- Result: PASS
+
+Total tests: 2 — All passed
+VERIFY_EXIT=0

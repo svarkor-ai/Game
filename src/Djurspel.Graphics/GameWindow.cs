@@ -14,9 +14,9 @@ namespace Djurspel.Graphics;
 /// </summary>
 public class GameWindow : OTK.GameWindow, IGameWindow
 {
-    private readonly IRenderer _renderer;
-    private readonly ICamera _camera;
-    private readonly IShaderManager _shaderManager;
+    private IRenderer _renderer;
+    private ICamera _camera;
+    private IShaderManager _shaderManager;
     private readonly Dictionary<string, object> _dataStore = new();
     private readonly HashSet<int> _pressedKeys = new();
     private readonly HashSet<int> _pressedButtons = new();
@@ -34,9 +34,19 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         _shaderManager = shaderManager;
         _camera = camera;
 
-        // OpenGL-initiering
+        // OpenGL-initiering — måste ske efter att fönstret skapats (OpenGL-kontext)
         Context.MakeCurrent();
         InitializeGL();
+    }
+
+    /// <summary>
+    /// Set renderer and shader manager after window creation.
+    /// Called when OpenGL context is already active.
+    /// </summary>
+    public void SetRendererAndShaderManager(IRenderer renderer, IShaderManager shaderManager)
+    {
+        _renderer = renderer;
+        _shaderManager = shaderManager;
     }
 
     #region Event hanterare

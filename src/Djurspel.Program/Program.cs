@@ -17,6 +17,7 @@ namespace Djurspel.Program
         private readonly IEventDispatcher _dispatcher;
         private readonly IAssetManager _assetManager;
         private readonly IGameWindow _window;
+        private readonly GameWindow _gameWindow;
         private readonly IRenderer _renderer;
         private readonly IShaderManager _shaderManager;
         private readonly ICamera _camera;
@@ -36,14 +37,15 @@ namespace Djurspel.Program
             _dispatcher = EventDispatcher.Instance;
             _assetManager = AssetManager.Instance;
 
-            // 2. Graphics — Renderer and ShaderManager first, then Camera, then Window
+              // 2. Graphics — GameWindow först (skapar OpenGL-kontext), sedan Renderer/ShaderManager/Camera
+            _camera = new IsometricCamera();
+            _gameWindow = new GameWindow(renderer: default!, shaderManager: default!, camera: _camera, 1280, 720);
+            _window = _gameWindow;
             _renderer = new Renderer();
             _renderer.Initialize();
             _shaderManager = new ShaderManager();
-            _camera = new IsometricCamera();
-
-            // Window depends on Renderer, ShaderManager, and Camera
-            _window = new GameWindow(_renderer, _shaderManager, _camera, 1280, 720);
+            // Sätt renderer och shader på fönstret — nu när OpenGL-kontext finns
+            _gameWindow.SetRendererAndShaderManager(_renderer, _shaderManager);
 
             // 3. World
             _world = WorldFactory.CreateFromPrimitive(64, 64, 1, TileType.Ground);
