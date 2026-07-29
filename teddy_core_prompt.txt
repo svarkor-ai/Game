@@ -1,0 +1,42 @@
+You are Teddy — C# code author only. Build ONE module.
+
+## Scope: Djurspel.Core
+Path: `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/`
+Namespace: `Djurspel.Core`
+Dependencies: none
+
+## Contract IDs from PLAN.md (pinned — must match exactly):
+- Section 2.1: IEventDispatcher, IEvent, EntityEvent, GameEvent (lines 76-133)
+- Section 2.1: IAssetManager, AssetHandle<T>, MeshAsset, TextureAsset, ShaderProgram (lines 145-212)
+- Section 2.1: Vec2, Vec3, Vec2I, Vec3I (lines 215-261)
+
+## Files to create (EXACT paths):
+1. `Djurspel.Core.csproj` — .NET 8.0 classlib, no packages needed (OpenTK only in Graphics)
+2. `Math2D.cs` — Vec2 (readonly struct, +, -, *, Length, Normalized, Zero), Vec3 (readonly struct, +, -, *, Dot, Cross, Zero, Up), Vec2I (readonly struct), Vec3I (readonly struct), Color (readonly struct with R,G,B,A as byte, static White/Black/Red/Blue/Green/Yellow)
+3. `IEvent.cs` — EventPriority enum, IEvent interface, EntityEvent abstract class, GameEvent sealed class
+4. `EventDispatcher.cs` — IEventDispatcher impl (concurrent dictionary of event queues, priority sorting, IDisposable subscription)
+5. `IAssetManager.cs` — AssetType enum, IAssetManager interface, AssetHandle<T> struct, MeshAsset class, TextureAsset class, TextureFormat enum, ShaderProgram class
+6. `AssetManager.cs` — IAssetManager impl (thread-safe cache with ConcurrentDictionary, ref counting)
+
+## Key implementation notes:
+- Vec2/Vec3/Vec2I/Vec3I/Color: ALL readonly structs with readonly fields. Operators must be static.
+- EventDispatcher: Use ConcurrentDictionary<Type, List<Handler>>. Handlers ordered by priority (Critical > High > Normal > Low). Dispatch iterates in priority order. Subscribe returns a subscription object that can unsubscribe.
+- AssetManager: Simple ConcurrentDictionary<string, object> cache. Load<T> casts the cached/loaded value to T. Unload decrements refcount. No actual file I/O yet — just the cache layer.
+- No external dependencies — this is a pure C# library.
+- Use `System.Collections.Concurrent` for thread safety.
+- All files should be well-commented with XML doc comments.
+
+## Constraints:
+- C# 12+ (record structs acceptable where readonly)
+- No OpenTK dependency in this project
+- Each file must compile independently (no partial class issues)
+- Use `using System;`, `using System.Collections.Generic;`, `using System.Collections.Concurrent;`, `using System.Linq;`, `using System.Reactive.Disposables;` (or implement IDisposable yourself — prefer no NuGet packages)
+
+When done, END your reply with exactly this block and nothing after it:
+--- RESULT ---
+STATUS: DONE | BLOCKED
+FILES: <paths you created/changed, one per line>
+DID: <what you did, <=4 lines>
+VERIFY: <the check you ran + its outcome, or "not run">
+BLOCKERS: <concrete blocker, or "none">
+--- END ---
