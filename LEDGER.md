@@ -24,7 +24,7 @@ Isometric RPG game engine with procedural world generation, UI system, and gamep
 | Module | Status | Notes |
 |--------|--------|-------|
 | Djurspel.UI | 🟡 Empty | Full HUD, inventory, skill bar, minimap, moral meter, menu system |
-| Djurspel.WorldGen | 🟡 Empty | Procedural generation, room-based dungeons, wilderness |
+| Djurspel.WorldGen | 🟡 Partial | Interface + GeneratedLevel | RoomDungeonGenerator + WildernessGenerator kvar |
 
 ### P2 — FUTURE
 | Feature | Notes |
