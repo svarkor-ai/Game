@@ -1,0 +1,236 @@
+Djurspel Entities-modul — implementera Djurspel.Entities med Entity, EntityRegistry, och 9 Component POCOs
+
+Mål: Bygg Djurspel.Entities som en byggningsbar modul med Entity, IEntityRegistry, EntityDefinition, och 9 component-POCOs.
+
+## Projektstruktur
+```
+src/Djurspel.Entities/
+├── Djurspel.Entities.csproj          ← referens till Djurspel.Core
+├── Entity.cs                         ← Entity class (ID, AddComponent, GetComponent, Die)
+├── EntityRegistry.cs                 ← IEntityRegistry (Create, Query, ProcessDeaths)
+├── IComponent.cs                     ← IComponent marker interface
+├── EntityDefinition.cs               ← EntityDefinition (JSON-deserialization)
+└── Components/
+    ├── TransformComponent.cs
+    ├── HealthComponent.cs
+    ├── CombatComponent.cs
+    ├── AIComponent.cs
+    ├── MovementComponent.cs
+    ├── RenderComponent.cs
+    ├── PlayerComponent.cs
+    ├── LootComponent.cs
+    └── DialogueComponent.cs
+```
+
+## Berörda filer — LÄS FÖRST
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/IEventDispatcher.cs` — IEvent, EntityEvent, GameEvent
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/EventDispatcher.cs` — EventDispatcher
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/Math2D.cs` — Vec2, Vec3, Vec3I structs
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/IAssetManager.cs` — AssetHandle, MeshAsset, TextureAsset
+- `/home/svarkor/svarkor-builds/djurspel/PLAN.md` — sektion 2.2 och 2.2.1 för interface-spec
+
+## Specifikation
+
+### 1. IComponent (Djurspel.Entities)
+```csharp
+namespace Djurspel.Entities;
+
+public interface IComponent { }
+```
+
+### 2. Entity (Djurspel.Entities)
+```csharp
+namespace Djurspel.Entities;
+
+public class Entity : IDisposable
+{
+    public int Id { get; }
+    public string Name { get; set; }
+    public bool IsAlive { get; }
+    
+    public void AddComponent<T>(T component) where T : IComponent;
+    public T? GetComponent<T>() where T : IComponent;
+    public void RemoveComponent<T>() where T : IComponent;
+    public IEnumerable<T> GetComponents<T>() where T : IComponent;
+    public void Die();
+    public void Dispose();
+}
+```
+Entity håller en `Dictionary<Type, IComponent>` för komponenter. När `Die()` anropas sätts `IsAlive = false` och `disposed = true`. När `Dispose()` anropas tas alla komponenter bort och `IDisposable` implementeras.
+
+### 3. IEntityRegistry (Djurspel.Entities)
+```csharp
+namespace Djurspel.Entities;
+
+public interface IEntityRegistry : IDisposable
+{
+    Entity Create();
+    Entity CreateFromDefinition(EntityDefinition def);
+    Entity? Get(int id);
+    IEnumerable<Entity> Query<T>() where T : IComponent;
+    IEnumerable<int> GetAllLivingIds();
+    List<int> ProcessDeaths();
+}
+```
+Håller alla entities i en `Dictionary<int, Entity>`. `Create()` returnerar nästa ID (`nextId++`). `Get(id)` returnerar entity eller null. `Query<T>()` filtrerar alla levande entities för T-komponent. `ProcessDeaths()` tar bort entities med `IsAlive=false` och returnerar borttagna ID:n.
+
+### 4. EntityDefinition (Djurspel.Entities)
+```csharp
+namespace Djurspel.Entities;
+
+public class EntityDefinition
+{
+    public string Type { get; set; }
+    public string Name { get; set; }
+    public Dictionary<string, object> ComponentData { get; } = new();
+}
+```
+
+### 5. Components (Djurspel.Entities.Components)
+
+#### TransformComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class TransformComponent : IComponent
+{
+    public float X { get; set; }
+    public float Y { get; set; }  // Y = "up" i world space
+    public float Z { get; set; }  // Z = höjd (floor levels, jumping)
+    public float Scale { get; set; } = 1.0f;
+    public float RotationY { get; set; } = 0f;
+}
+```
+
+#### HealthComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class HealthComponent : IComponent
+{
+    public float Current { get; set; }
+    public float Max { get; set; }
+    public bool IsDead => Current <= 0f;
+}
+```
+
+#### CombatComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class CombatComponent : IComponent
+{
+    public float AttackDamage { get; set; }
+    public float AttackCooldown { get; set; }
+    public float AttackRange { get; set; }
+    public float AttackSpeed { get; set; }
+    public string WeaponType { get; set; } = "melee";
+}
+```
+
+#### AIComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class AIComponent : IComponent
+{
+    public AIBehavior Behavior { get; set; }
+    public int? TargetEntityId { get; set; }
+    public Vec3I PatrolPoint { get; set; }
+}
+
+public enum AIBehavior { Idle, Patrol, Chase, Attack, Flee, Ally }
+```
+
+#### MovementComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class MovementComponent : IComponent
+{
+    public float Speed { get; set; } = 3.0f;
+    public float CurrentSpeed { get; set; }
+    public bool IsMoving { get; set; }
+    public Vec3 TargetPosition { get; set; }
+}
+```
+
+#### RenderComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class RenderComponent : IComponent
+{
+    public string MeshAssetPath { get; set; }
+    public string TextureAssetPath { get; set; }
+    public OpenTK.Mathematics.Vector3 Color { get; set; } = new(1, 1, 1);
+    public bool Visible { get; set; } = true;
+}
+```
+
+#### PlayerComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class PlayerComponent : IComponent
+{
+    public MoralAlignment Alignment { get; set; }
+    public int Gold { get; set; }
+    public int Experience { get; set; }
+    public int Level { get; set; }
+}
+
+public enum MoralAlignment { Compassionate = 0, Neutral = 1, Ruthless = 2 }
+```
+
+#### LootComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class LootComponent : IComponent
+{
+    public string[] LootTable { get; set; } = Array.Empty<string>();
+    public float DropChance { get; set; } = 1.0f;
+}
+```
+
+#### DialogueComponent
+```csharp
+namespace Djurspel.Entities.Components;
+
+public class DialogueComponent : IComponent
+{
+    public string DialogueFile { get; set; }
+    public int RelationshipScore { get; set; }
+    public bool IsCompanion { get; set; }
+}
+```
+
+### 6. Djurspel.Entities.csproj
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+</Project>
+```
+
+## Krav
+- **0 build errors** — `dotnet build` måste returnera exit 0
+- **0 build warnings** — inga compiler warnings
+- Referera till Core: `<ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />`
+- `IEntityRegistry` måste implementera `IDisposable`
+- `Entity` måste implementera `IDisposable`
+- Använd `OpenTK.Mathematics.Vector3` för RenderComponent.Color (OpenTK är en dependency)
+- Entities namespace: `Djurspel.Entities` och `Djurspel.Entities.Components`
+- Vec2, Vec3, Vec3I refereras från Djurspel.Core namespace: `Djurspel.Core`
+
+## BUDGET: Max 15 filer, max 3500 totala lines. Varje fil max 400 lines.

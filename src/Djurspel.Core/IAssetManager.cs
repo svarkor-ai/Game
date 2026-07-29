@@ -17,10 +17,15 @@ public enum AssetType
 /// </summary>
 public enum TextureFormat
 {
-    RGB,    // 3 bytes per pixel
-    RGBA,   // 4 bytes per pixel
+    R8,         // 1 channel, 8 bits
+    RG8,        // 2 channels, 8 bits each
+    RGBA8,      // 4 channels, 8 bits each
+    RGB8,       // 3 channels, 8 bits each
+    RGBA32F,    // 4 channels, 32 bits float
+    RGB,        // 3 bytes per pixel
+    RGBA,       // 4 bytes per pixel
     LUMINANCE,  // 1 byte per pixel
-    GRAYSCALE  // 1 byte per pixel (with alpha)
+    GRAYSCALE   // 1 byte per pixel (with alpha)
 }
 
 /// <summary>

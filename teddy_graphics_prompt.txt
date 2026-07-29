@@ -1,0 +1,275 @@
+Djurspel Graphics-modul — implementera Djurspel.Graphics med OpenTK 4.8.2 och OpenGL 4.x
+
+Mål: Bygg Djurspel.Graphics som en byggningsbar modul med IRenderer, IShaderManager, ICamera, IPrimitiveMeshFactory, IGameWindow, Color, och GLSL-shaders.
+
+## Projektstruktur
+```
+src/Djurspel.Graphics/
+├── Djurspel.Graphics.csproj          ← OpenTK 4.8.2, referens till Djurspel.Core
+├── GameWindow.cs                     ← IGameWindow implementering (OpenTK GameWindow)
+├── ShaderManager.cs                  ← IShaderManager implementering (GLSL compile/link/bind)
+├── IsometricCamera.cs                ← ICamera implementering (world→screen isometrisk transform)
+├── Renderer.cs                       ← IRenderer implementering (draw mesh/tile/line/batch)
+├── PrimitiveMeshFactory.cs           ← IPrimitiveMeshFactory (cube, sphere, cylinder, plane, iso tile)
+├── Color.cs                          ← Color struct med RGBAFärg
+└── GLSL/                             ← Shader-filer
+    ├── vertex.glsl
+    ├── fragment.glsl
+    └── tile_vertex.glsl
+    └── tile_fragment.glsl
+```
+
+## Berörda filer — läs först
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/Math2D.cs` — Vec2, Vec3, Vec3I, Color struct (den som ANVÄNDAS, inte PLAN.md)
+- `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Core/IAssetManager.cs` — AssetHandle, MeshAsset, TextureAsset
+- `/home/svarkor/svarkor-builds/djurspel/PLAN.md` — sektion 2.3 för interface-spec
+
+## Specifikation
+
+### 1. Color struct (Djurspel.Graphics.Color)
+```csharp
+namespace Djurspel.Graphics;
+
+public readonly struct Color
+{
+    public float R { get; }
+    public float G { get; }
+    public float B { get; }
+    public float A { get; }
+    public Color(float r, float g, float b, float a = 1.0f) { R=r; G=g; B=b; A=a; }
+    public static Color White => new(1,1,1,1);
+    public static Color Black => new(0,0,0,1);
+    public static Color Red => new(1,0,0,1);
+    public static Color Green => new(0,1,0,1);
+    public static Color Blue => new(0,0,1,1);
+}
+```
+NOT: `Djurspel.Core` har redan en Color struct (byte-baserad, 32-bit ARGB). Graphics har en separat float-baserad Color. De är olika typer.
+
+### 2. IGameWindow (Djurspel.Graphics)
+Implementera med `OpenTK.Windowing.Desktop.GameWindow`.
+```csharp
+public interface IGameWindow : IDisposable
+{
+    int Width { get; }
+    int Height { get; }
+    bool IsOpen { get; }
+    bool ShouldClose { get; }
+    void SwapBuffers();
+    void Close();
+    void SetTitle(string title);
+    void ProcessEvents();
+    Vec2 MousePosition { get; }
+    bool IsMouseButtonPressed(int button);
+    bool IsKeyDown(int key);
+}
+```
+OpenTK nyckel-enum: `OpenTK.Windowing.Common.Key`. Musknappar: `OpenTK.Windowing.Common.MouseButton`.
+
+### 3. IShaderManager (Djurspel.Graphics)
+GLSL-compilerare: skapar vertex + fragment shaders, linker till program, cachar by name.
+```csharp
+public interface IShaderManager : IDisposable
+{
+    ShaderProgram Load(string vertexPath, string fragmentPath, string? geometryPath = null);
+    ShaderProgram? Get(string name);
+    void Bind(ShaderProgram shader);
+    void SetUniform(string name, float value);
+    void SetUniformVec3(string name, OpenTK.Mathematics.Vector3 value);
+    void SetUniformVec4(string name, Color value);
+    void SetUniformMat4(string name, float[] matrix);
+    void SetUniformInt(string name, int value);
+}
+
+public readonly struct ShaderProgram
+{
+    public int Id { get; }
+    public string Name { get; }
+}
+```
+Implementera GL-operations: `GL.CreateShader()`, `GL.ShaderSource()`, `GL.CompileShader()`, `GL.GetShaderInfoLog()`, `GL.CreateProgram()`, `GL.AttachShader()`, `GL.LinkProgram()`, `GL.GetProgramInfoLog()`, `GL.UseProgram()`, `GL.GetUniformLocation()`, `GL.Uniform1/3/4/Matrix4()`.
+
+GLSL vertex shader (shader.glsl) — standard mesh rendering:
+```glsl
+#version 430 core
+
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+layout(location = 2) in vec2 aUV;
+
+uniform mat4 uProjection;
+uniform mat4 uModel;
+
+out vec3 vColor;
+out vec2 vUV;
+
+void main()
+{
+    gl_Position = uProjection * uModel * vec4(aPos, 1.0);
+    vColor = aColor;
+    vUV = aUV;
+}
+```
+
+GLSL fragment shader (shader.frag):
+```glsl
+#version 430 core
+
+in vec3 vColor;
+in vec2 vUV;
+
+out vec4 FragColor;
+
+uniform sampler2D uTexture;
+uniform int uHasTexture;
+
+void main()
+{
+    if (uHasTexture == 1)
+    {
+        vec4 texColor = texture(uTexture, vUV);
+        FragColor = texColor * vec4(vColor, 1.0);
+    }
+    else
+    {
+        FragColor = vec4(vColor, 1.0);
+    }
+}
+```
+
+GLSL vertex shader för isometriska tiles:
+```glsl
+#version 430 core
+
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+layout(location = 2) in vec2 aUV;
+
+uniform mat4 uProjection;
+
+out vec3 vColor;
+out vec2 vUV;
+
+void main()
+{
+    gl_Position = uProjection * vec4(aPos, 1.0);
+    vColor = aColor;
+    vUV = aUV;
+}
+```
+
+GLSL fragment shader för tiles:
+```glsl
+#version 430 core
+
+in vec3 vColor;
+in vec2 vUV;
+
+out vec4 FragColor;
+
+uniform sampler2D uTexture;
+uniform int uHasTexture;
+
+void main()
+{
+    if (uHasTexture == 1)
+    {
+        vec4 texColor = texture(uTexture, vUV);
+        FragColor = texColor * vec4(vColor, 1.0);
+    }
+    else
+    {
+        FragColor = vec4(vColor, 1.0);
+    }
+}
+```
+
+### 4. ICamera (Djurspel.Graphics)
+Isometrisk kameraprojektion: 2:1 ratio (bredd 64px, höjd 32px).
+```csharp
+public interface ICamera
+{
+    Vec3 Position { get; set; }
+    float Zoom { get; set; }
+    Vec2 WorldToScreen(Vec3 worldPos);
+    Vec3 ScreenToWorld(Vec2 screenPos);
+    Vec2 TileToScreen(Vec3I tile, float tilePixelWidth = 64f, float tilePixelHeight = 32f);
+    Vec3I ScreenToTile(Vec2 screen, float tilePixelWidth = 64f, float tilePixelHeight = 32f);
+    IEnumerable<Vec3I> GetDepthSortedOrder(IEnumerable<Vec3I> entities);
+    void FollowEntity(Entity target, float smoothingFactor = 5f, float dt = 0.016f);
+}
+```
+Isometrisk transform:
+- `screenX = (tileX - tileY) * tilePixelWidth / 2 + offsetX`
+- `screenY = (tileX + tileY) * tilePixelHeight / 2 - tileZ * tilePixelHeight + offsetY`
+- Depth sort: `screenY` (lower = draw first)
+
+### 5. IRenderer (Djurspel.Graphics)
+```csharp
+public enum RenderBatchType { World, UI, Debug }
+
+public interface IRenderer : IDisposable
+{
+    void SetViewport(int width, int height);
+    void Clear(Color background);
+    void DrawMesh(MeshAsset mesh, TextureAsset? texture, Vec2 screenPos, float scale, OpenTK.Mathematics.Vector3 color, float rotation);
+    void DrawTile(TileMesh tileMesh, Vec2 screenPos, float heightOffset, Color tintColor);
+    void DrawLine(Vec2 from, Vec2 to, Color color, float thickness);
+    void BeginBatch(RenderBatchType type);
+    void EndBatch();
+}
+
+public readonly struct TileMesh
+{
+    public int VaoId { get; }
+    public int IndexCount { get; }
+}
+```
+
+### 6. IPrimitiveMeshFactory (Djurspel.Graphics)
+```csharp
+public interface IPrimitiveMeshFactory
+{
+    MeshAsset CreateCube();
+    MeshAsset CreateSphere(int segments = 16);
+    MeshAsset CreateCylinder(float radius = 0.5f, float height = 1.0f, int segments = 16);
+    MeshAsset CreatePlane(float width = 1.0f, float depth = 1.0f);
+    MeshAsset CreateIsometricTile(float width, float depth, float height);
+}
+```
+Använd `GL.GenVertexArrays()`, `GL.GenBuffers()`, `GL.BindBuffer()`, `GL.BufferData()`, `GL.VertexAttribPointer()`, `GL.EnableVertexAttribArray()`.
+
+### 7. Djurspel.Graphics.csproj
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenTK" Version="4.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="GLSL/vertex.glsl" />
+    <EmbeddedResource Include="GLSL/fragment.glsl" />
+    <EmbeddedResource Include="GLSL/tile_vertex.glsl" />
+    <EmbeddedResource Include="GLSL/tile_fragment.glsl" />
+  </ItemGroup>
+</Project>
+```
+
+## Krav
+- **0 build errors** — `dotnet build` måste returnera exit 0
+- **0 build warnings** — inga compiler warnings
+- Referera till Core: `<ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />`
+- GLSL-shaders ska laddas som embedded resources (använd `Assembly.GetManifestResourceStream()`)
+- Isometrisk kamerakalkyl måste matcha PLAN.md formeln exakt
+- Color i Graphics är float-baserad [0,1], Core Color är byte-baserad [0,255] ARGB — de är separata typer
+- `ShaderProgram` är en `readonly struct` med `int Id` och `string Name`
+- `TileMesh` är en `readonly struct` med `int VaoId` och `int IndexCount`
+
+## BUDGET: Max 10 filer, max 3000 totala lines. Varje fil max 500 lines.
