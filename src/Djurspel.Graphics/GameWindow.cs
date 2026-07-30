@@ -15,8 +15,9 @@ namespace Djurspel.Graphics;
 public class GameWindow : OTK.GameWindow, IGameWindow
 {
     private IRenderer _renderer;
-    private ICamera _camera;
     private IShaderManager _shaderManager;
+    private ICamera _camera;
+    private Action<double> _updateFrameCallback;
     private readonly Dictionary<string, object> _dataStore = new();
     private readonly HashSet<int> _pressedKeys = new();
     private readonly HashSet<int> _pressedButtons = new();
@@ -33,6 +34,7 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         _renderer = renderer;
         _shaderManager = shaderManager;
         _camera = camera;
+        _updateFrameCallback = _ => { }; // default no-op
 
         // OpenGL-initiering — måste ske efter att fönstret skapats (OpenGL-kontext)
         Context.MakeCurrent();
@@ -49,6 +51,15 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         _shaderManager = shaderManager;
     }
 
+    /// <summary>
+    /// Set the update-frame callback from GameLoop.
+    /// Called by GameEngine to wire GameWindow → GameLoop.
+    /// </summary>
+    public void SetUpdateFrameCallback(Action<double> callback)
+    {
+        _updateFrameCallback = callback;
+    }
+
     #region Event hanterare
 
     protected override void OnLoad()
@@ -57,10 +68,11 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         Context.MakeCurrent();
     }
 
-    protected override void OnUpdateFrame(FrameEventArgs e)
+      protected override void OnUpdateFrame(FrameEventArgs e)
     {
         base.OnUpdateFrame(e);
         Update();
+        _updateFrameCallback(e.Time);
     }
 
     protected override void OnRenderFrame(FrameEventArgs e)

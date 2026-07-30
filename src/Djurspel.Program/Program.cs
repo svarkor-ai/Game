@@ -79,16 +79,22 @@ namespace Djurspel.Program
                 _ai,
                 _scene,
                 _stateMachine);
+
+             // Bind GameWindow to GameLoop via delegate
+            _gameWindow.SetUpdateFrameCallback(_ => _loop.UpdateFrame());
         }
 
         public void Run()
         {
             _loop.Start();
+            // Start OpenTK event loop — drives OnUpdateFrame/OnRenderFrame
+            _gameWindow.RunGameLoop();
         }
 
         public void Stop()
         {
             _loop.Stop();
+            _gameWindow.Close();
         }
 
         public void Dispose()

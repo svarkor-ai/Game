@@ -8,4 +8,5 @@ public interface IGameLoop : IDisposable
     void RegisterRender(System.Action<double> render, string name);
     void Start();
     void Stop();
+    void UpdateFrame();
 }
