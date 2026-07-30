@@ -1,42 +1,21 @@
-# Djurspel LEDGER
+# Djurspel Build Ledger
 
 ## Goal
-Isometric RPG game engine with procedural world generation, UI system, and gameplay.
+Isometric 3D game med OpenTK 4 — spelare syns med sprite, rendering fungerar i headless Xvfb.
 
-## Status
-- **Build**: ✅ 0 errors, 0 warnings — all 7 modules compile
-- **MC Job 34**: completed_unverified, DONE-gate requested
+## Acceptance
+1. Programmet startar utan krasch ✅ VERIFIED
+2. Skärmen visar spelvärlden (tiles + player) — inte svart ❌ BLOCKED
+3. Commit och push till GitHub ⏳
 
-## Modules
+## Module Status
+- Core/Entities ✅ VERIFIED
+- Graphics/Renderer ✅ VERIFIED (no crashes, shaders compile)
+- Graphics/GameWindow ✅ VERIFIED  
+- Game/GameLoop ✅ VERIFIED
+- **Rendering output ❌ BLACK SCREEN — under investigation**
 
-### P0 — PROTOTYPE (COMPLETED, committed)
-| Module | Status | Files | Notes |
-|--------|--------|-------|-------|
-| Djurspel.Core | ✅ Done | 11 | EventDispatcher, AssetManager, Vec2/Vec3, Math2D, MoralAlignment |
-| Djurspel.Entities | ✅ Done | 8 | Entity, EntityRegistry, Components (Transform/Health/Combat/Movement/Render) |
-| Djurspel.Graphics | ✅ Done | 14 | GameWindow, ShaderManager, IsometricCamera, Renderer, PrimitiveMesh |
-| Djurspel.World | ✅ Done | 9 | TileMap, TileData, WorldFactory, IWorld |
-| Djurspel.Gameplay | ✅ Done | 10 | InputManager, CombatManager, AIManager, InventoryManager, MoralManager |
-| Djurspel.Game | ✅ Done | 10 | GameLoop, GameStateMachine, SceneManager, GameStates |
-| Djurspel.Program | ✅ Done | 4 | Bootstrap wiring, Main entry point |
-
-### P1 — NEXT (BUILD)
-| Module | Status | Notes |
-|--------|--------|-------|
-| Djurspel.UI | 🟡 Empty | Full HUD, inventory, skill bar, minimap, moral meter, menu system |
-| Djurspel.WorldGen | ✅ Done | 6 | IWorldGenerator, IRoomDungeonGenerator, GeneratedLevel, RoomDungeonGenerator, WildernessGenerator, SimplexNoise |
-
-### P2 — FUTURE
-| Feature | Notes |
-|---------|-------|
-| Inventory system (full) | Beyond InventoryManager stubs |
-| Companion/dialogue system | Bond, betrayal, dialogue |
-| Moral choice system | Mass Effect-style decisions |
-| Skill/tree system | Progression |
-| Advanced AI | Behavior trees, flocking, tactics |
-| Multi-level / dungeon | Dungeon crawler progression |
-
-## Plan location
-- PLAN.md: 2479 lines, comprehensive spec
-- Prototyp scope defined in section 9
-- Implementation order: B. IMPLEMENTERINGSORDNING
+## Open Questions
+- Why is the screen black? Shaders have uView/uProjection uniforms but they're never set
+- Camera and player at same position (0,0,0)
+- Depth test enabled — could be hiding everything

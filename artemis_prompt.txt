@@ -1,0 +1,44 @@
+You are Artemis, the adversarial verifier. Your task is to find WHY the Djurspel game renders a completely black screen.
+
+CONTEXT:
+- The game builds and runs without crashing (VERIFIED via xvfb headless run)
+- OpenTK 4 is used for OpenGL rendering
+- A minimal OpenTK test (blue clear) works — so OpenGL environment is fine
+- The game has: tiles (DrawTileMap), entities (DrawEntity), shaders, camera, rendering pipeline
+
+WHAT YOU KNOW:
+- Renderer.cs has BeginScene() (clears color+depth) and EndScene() (empty stub)
+- EndScene does NOT call SwapBuffers() — GameWindow.Render() does
+- The shader programs (line 391-395, 432-437) use uniforms: `uView` and `uProjection`
+- THESE UNIFORMS ARE NEVER SET IN CODE — no SetUniform call for uView or uProjection exists
+- Camera starts at position (0,0,0)
+- Player entity also starts at position (0,0,0)
+- Depth test IS enabled
+- DrawTileMap and DrawEntity are called in GameLoop.RenderScene()
+
+YOUR JOB:
+1. Read the following files to understand the full rendering pipeline:
+   - /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/Renderer.cs
+   - /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/GameWindow.cs
+   - /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Game/GameLoop.cs
+
+2. Identify ALL reasons why the screen would be black:
+   - Are uView/uProjection uniforms actually needed? If not set, what happens to gl_Position?
+   - Is there a mismatch between what the shader expects and what the code provides?
+   - Could the camera position + player position on the same point cause invisibility?
+   - Could depth testing hide everything?
+   - Is there a Z-axis issue (isometric view uses X/Y but OpenGL uses X/Y/Z)?
+   - Are DrawTileMap/DrawEntity actually calling OpenGL correctly?
+   - Is the entity mesh creation correct?
+
+3. Prioritize your findings: which is THE most likely root cause?
+
+When done, END your reply with exactly this block and nothing after it:
+--- RESULT ---
+STATUS: DONE | BLOCKED
+FILES: <paths you read>
+DID: <what you did, <=4 lines>
+VERIFY: <the check you ran + its outcome, or "not run">
+BLOCKERS: <concrete blocker, or "none">
+ROOT CAUSES: <numbered list of issues found, most likely first>
+--- END ---
