@@ -6,6 +6,7 @@ namespace Djurspel.Graphics;
 public interface IRenderer : IDisposable
 {
     void Initialize();
+    void SetShaderManager(IShaderManager shaderManager);
     void Render(ICamera camera, IShaderManager shaderManager, float frameTime);
     void DrawCube(Vector3 position, Vector3 size, Vector4 color, IShaderManager shaderManager);
     void DrawSphere(Vector3 position, float radius, Vector4 color, IShaderManager shaderManager);

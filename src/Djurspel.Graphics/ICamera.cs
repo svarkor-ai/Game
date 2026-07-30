@@ -14,4 +14,6 @@ public interface ICamera
     Vector3i ScreenToTile(Vector2 screen, float tilePixelWidth = 64f, float tilePixelHeight = 32f);
     IEnumerable<Vector3i> GetDepthSortedOrder(IEnumerable<Vector3i> entities);
     void FollowEntity(object target, float smoothingFactor = 5f, float dt = 0.016f);
+    Matrix4 GetViewMatrix();
+    Matrix4 GetProjectionMatrix();
 }

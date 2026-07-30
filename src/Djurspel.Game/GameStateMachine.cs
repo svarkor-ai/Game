@@ -26,27 +26,22 @@ public class GameStateMachine : IGameStateMachine
 
     public void Run()
     {
-        // State machine loop — transitions are handled externally.
-        // The actual game loop (GameLoop) is started by GameEngine.
-        while (true)
+        // One-step execution — the actual loop runs in GameLoop, not here.
+        // Do NOT run an infinite loop here — it blocks the OpenTK event thread.
+        switch (_currentState)
         {
-            switch (_currentState)
-            {
-                case GameState.Menu:
-                    // Menu handling — stubbed
-                    break;
-                case GameState.Game:
-                    // Game running — GameLoop handles this
-                    break;
-                case GameState.Pause:
-                    // Pause handling — stubbed
-                    break;
-                case GameState.GameOver:
-                    // Game over — stubbed
-                    break;
-            }
-            // Yield to avoid busy-waiting (real implementation uses GameLoop)
-            System.Threading.Thread.Sleep(16);
+            case GameState.Menu:
+                // Menu handling — stubbed
+                break;
+            case GameState.Game:
+                // Game running — GameLoop handles this
+                break;
+            case GameState.Pause:
+                // Pause handling — stubbed
+                break;
+            case GameState.GameOver:
+                // Game over — stubbed
+                break;
         }
     }
 

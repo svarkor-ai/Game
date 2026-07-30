@@ -41,7 +41,7 @@ namespace Djurspel.Program
             _camera = new IsometricCamera();
             _gameWindow = new GameWindow(renderer: default!, shaderManager: default!, camera: _camera, 1280, 720);
             _window = _gameWindow;
-            _renderer = new Renderer();
+            _renderer = new Renderer(1280, 720);
             _renderer.Initialize();
             _shaderManager = new ShaderManager();
             // Sätt renderer och shader på fönstret — nu när OpenGL-kontext finns
@@ -80,7 +80,7 @@ namespace Djurspel.Program
                 _scene,
                 _stateMachine);
 
-             // Bind GameWindow to GameLoop via delegate
+              // Bind GameWindow to GameLoop via delegate
             _gameWindow.SetUpdateFrameCallback(_ => _loop.UpdateFrame());
         }
 

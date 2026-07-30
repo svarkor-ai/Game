@@ -41,30 +41,35 @@ public class Renderer : IRenderer
     }
 
     public void Dispose()
-    {
-        CleanupShaderProgram();
-        if (_spriteShaderProgram != null) GL.DeleteProgram(_spriteShaderProgram.Value);
-        if (_spriteVao != 0) GL.DeleteVertexArray(_spriteVao);
-        if (_spriteVbo != 0) GL.DeleteBuffer(_spriteVbo);
-        if (_spriteEbo != 0) GL.DeleteBuffer(_spriteEbo);
-        foreach (var tex in _textures.Values)
-        {
-            GL.DeleteTexture(tex.GlHandle);
-        }
-        foreach (var (_, (vao, _, _)) in _tileMeshes)
-        {
-            GL.DeleteVertexArray(vao);
-        }
-    }
+     {
+         CleanupShaderProgram();
+         if (_spriteShaderProgram != null) GL.DeleteProgram(_spriteShaderProgram.Value);
+         if (_spriteVao != 0) GL.DeleteVertexArray(_spriteVao);
+         if (_spriteVbo != 0) GL.DeleteBuffer(_spriteVbo);
+         if (_spriteEbo != 0) GL.DeleteBuffer(_spriteEbo);
+         foreach (var tex in _textures.Values)
+         {
+             GL.DeleteTexture(tex.GlHandle);
+         }
+         foreach (var (_, (vao, _, _)) in _tileMeshes)
+         {
+             GL.DeleteVertexArray(vao);
+         }
+     }
 
-    public void Initialize()
+     public void SetShaderManager(IShaderManager shaderManager)
+     {
+         _shaderManager = shaderManager;
+     }
+
+     public void Initialize()
     {
-        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-        GL.ClearColor(0.15f, 0.15f, 0.2f, 1.0f);
-        GL.Enable(EnableCap.DepthTest);
-        GL.Enable(EnableCap.CullFace);
-        GL.CullFace(CullFaceMode.Back);
         GL.Viewport(0, 0, _windowWidth, _windowHeight);
+        Console.Error.WriteLine($"[Initialize] Viewport set to 0,0,{_windowWidth},{_windowHeight}");
+        GL.ClearColor(0.15f, 0.15f, 0.2f, 1.0f);
+        GL.Disable(EnableCap.DepthTest);
+        GL.Disable(EnableCap.CullFace);
+        Console.Error.WriteLine($"[Initialize] DepthTest disabled, CullFace disabled");
         BuildSpriteMesh();
     }
 
@@ -149,8 +154,70 @@ public class Renderer : IRenderer
     /// </summary>
     public void DrawTileMap(object world, object region, float interpolation)
     {
-        dynamic cam = world;
-        DrawTileMap(cam, interpolation);
+        // Use the passed world/region directly instead of _dummyWorld
+        dynamic w = world;
+        int width = w.Width;
+        int height = w.Height;
+
+        // Draw only the tiles in this specific region
+        dynamic rd = region;
+        int startX = rd.Origin.X;
+        int startY = rd.Origin.Y;
+        int sizeX = rd.Size.X;
+        int sizeY = rd.Size.Y;
+        int layer = rd.Layer;
+
+        if (_shaderManager == null) return;
+        int prog = EnsureSceneShader(_shaderManager);
+        if (prog == 0) return;
+
+        for (int y = startY; y < startY + sizeY && y < height; y++)
+        {
+            for (int x = startX; x < startX + sizeX && x < width; x++)
+            {
+                dynamic tile = w.GetTile(x, y, layer);
+                string tileType = tile.Type.ToString();
+                if (tileType == "Void") continue;
+
+                string key = tileType;
+                if (!_tileMeshes.ContainsKey(key))
+                {
+                    Vector3 size = GetTileScale(tileType);
+                    var mesh = CreateBoxMesh(size);
+                    _tileMeshes[key] = mesh;
+                }
+
+                var (vao, _, elemCount) = _tileMeshes[key];
+
+                Vector3 pos = new(x * TILE_SIZE, layer * TILE_SIZE, y * TILE_SIZE);
+                Matrix4 model = Matrix4.CreateScale(GetTileScale(tileType))
+                    * Matrix4.CreateTranslation(pos);
+                SetUniformMat4(prog, "uModel", ref model);
+
+                Vector4 col;
+                try
+                {
+                    if (tile.HasProperty("TintColor") && tile.TintColor != null)
+                    {
+                        var tint = tile.TintColor;
+                        col = new Vector4(tint.X, tint.Y, tint.Z, tint.W);
+                    }
+                    else
+                    {
+                        col = TileColor(tileType);
+                    }
+                }
+                catch
+                {
+                    col = TileColor(tileType);
+                }
+                SetUniform4(prog, "uColor", col);
+
+                GL.BindVertexArray(vao);
+                GL.DrawElements(PrimitiveType.Triangles, elemCount, DrawElementsType.UnsignedInt, 0);
+                GL.BindVertexArray(0);
+            }
+        }
     }
 
     private void DrawTileMap(ICamera camera, float interpolation)
@@ -234,93 +301,97 @@ public class Renderer : IRenderer
     {
         dynamic e = entity;
 
-        // Get position (Vec3I or Vector3)
-        dynamic pos = e.Position;
-        Vector3 worldPos = new(pos.X, pos.Y, pos.Z);
-
-        // Try to get RenderComponent
-        string? spriteName = null;
+        // Get position from TransformComponent
         try
         {
-            var renderComp = e.GetComponent<RenderComponent>();
-            if (renderComp is null || !renderComp.Visible) return;
-            spriteName = renderComp.SpriteName;
-        }
-        catch
-        {
-            // No render component — skip
-            return;
-        }
+            var transform = e.GetComponent<TransformComponent>();
+            if (transform == null) return;
+            float tx = transform.X, ty = transform.Y, tz = transform.Z;
+            if (float.IsNaN(tx)) tx = 0f;
+            if (float.IsNaN(ty)) ty = 0f;
+            if (float.IsNaN(tz)) tz = 0f;
+            Vector3 worldPos = new(tx, ty, tz);
 
-        if (string.IsNullOrEmpty(spriteName)) return;
-
-        // Ensure sprite shader
-        if (_spriteShaderProgram == 0)
-        {
-            int spriteProg = BuildSpriteShader();
-            if (spriteProg == 0) return;
-            _spriteShaderProgram = spriteProg;
-        }
-        int prog = _spriteShaderProgram.Value;
-
-        // Load or get cached texture
-        string assetPath = $"sprites/{spriteName}";
-        if (!_textures.ContainsKey(assetPath) && _textureLoader != null)
-        {
-            // Try to load from assets directory
-            string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", $"{spriteName}.bmp");
-            if (!File.Exists(fullPath))
+            // Try to get RenderComponent
+            string? spriteName = null;
+            try
             {
-                // Also check relative to working directory
-                fullPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", $"{spriteName}.bmp");
+                var renderComp = e.GetComponent<RenderComponent>();
+                if (renderComp is null || !renderComp.Visible) return;
+                spriteName = renderComp.SpriteName;
             }
-            if (File.Exists(fullPath))
+            catch
             {
-                  try
+                return;
+            }
+
+            if (string.IsNullOrEmpty(spriteName)) return;
+
+            // Ensure sprite shader
+            if (_spriteShaderProgram is null || _spriteShaderProgram == 0)
+            {
+                int spriteProg = BuildSpriteShader();
+                if (spriteProg == 0) return;
+                _spriteShaderProgram = spriteProg;
+            }
+            int prog = _spriteShaderProgram!.Value;
+
+            // Load or get cached texture
+            string assetPath = $"sprites/{spriteName}";
+            if (!_textures.ContainsKey(assetPath) && _textureLoader != null)
+            {
+                string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", $"{spriteName}.bmp");
+                if (!File.Exists(fullPath))
                 {
-                    var asset = _textureLoader.LoadTexture(fullPath);
-                    _textures[assetPath] = asset;
+                    fullPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", $"{spriteName}.bmp");
                 }
-                catch (Exception ex)
+                if (File.Exists(fullPath))
                 {
-                    Console.Error.WriteLine($"Failed to load texture {fullPath}: {ex.Message}");
+                    try
+                    {
+                        var asset = _textureLoader.LoadTexture(fullPath);
+                        _textures[assetPath] = asset;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Failed to load texture {fullPath}: {ex.Message}");
+                        return;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Texture not found: {fullPath}, using colored cube fallback");
+                    DrawEntityAsCube(e, worldPos);
                     return;
                 }
             }
-            else
+
+            if (!_textures.TryGetValue(assetPath, out var tex))
             {
-                // No texture file — fall back to a solid color cube
-                Console.WriteLine($"Texture not found: {fullPath}, using colored cube fallback");
                 DrawEntityAsCube(e, worldPos);
                 return;
             }
-        }
 
-        if (!_textures.TryGetValue(assetPath, out var tex))
+            float spriteScale = 1.5f;
+            Vector3 center = new(worldPos.X, worldPos.Y, worldPos.Z);
+            Matrix4 model = Matrix4.CreateTranslation(center.X, center.Y, center.Z)
+                * Matrix4.CreateScale(spriteScale, spriteScale, spriteScale);
+
+            SetUniformMat4(prog, "uModel", ref model);
+            SetUniform1(prog, "uTexture", 0);
+
+            GL.ActiveTexture(TextureUnit.Texture0);
+            GL.BindTexture(TextureTarget.Texture2D, tex.GlHandle);
+
+            GL.BindVertexArray(_spriteVao);
+            GL.DrawElements(PrimitiveType.Triangles, _spriteIndexCount, DrawElementsType.UnsignedInt, 0);
+            GL.BindVertexArray(0);
+            GL.BindTexture(TextureTarget.Texture2D, 0);
+        }
+        catch (Exception ex)
         {
-            DrawEntityAsCube(e, worldPos);
-            return;
+            Console.Error.WriteLine($"[DrawEntity] Error: {ex.Message}\n{ex.StackTrace}");
         }
-
-        // Billboard: create model matrix that translates to entity position
-        // and scales to a reasonable size
-        float spriteScale = 1.5f;
-        Vector3 center = new(worldPos.X, worldPos.Y, worldPos.Z);
-        Matrix4 model = Matrix4.CreateTranslation(center.X, center.Y, center.Z)
-            * Matrix4.CreateScale(spriteScale, spriteScale, spriteScale);
-
-        SetUniformMat4(prog, "uModel", ref model);
-        SetUniform1(prog, "uTexture", 0);
-
-        // Bind texture
-        GL.ActiveTexture(TextureUnit.Texture0);
-        GL.BindTexture(TextureTarget.Texture2D, tex.GlHandle);
-
-        // Draw quad
-        GL.BindVertexArray(_spriteVao);
-        GL.DrawElements(PrimitiveType.Triangles, _spriteIndexCount, DrawElementsType.UnsignedInt, 0);
-        GL.BindVertexArray(0);
-        GL.BindTexture(TextureTarget.Texture2D, 0);
     }
 
     private void DrawEntityAsCube(dynamic e, Vector3 worldPos)
@@ -342,9 +413,11 @@ public class Renderer : IRenderer
             _entityMeshes["_cube_"] = CreateBoxMesh(size);
         }
         var (vao, _, elemCount) = _entityMeshes["_cube_"];
+        GL.UseProgram(prog);
         GL.BindVertexArray(vao);
         GL.DrawElements(PrimitiveType.Triangles, elemCount, DrawElementsType.UnsignedInt, 0);
         GL.BindVertexArray(0);
+        Console.Error.WriteLine($"[DrawEntityAsCube] Drew cube at {worldPos}, err={(int)GL.GetError()}");
     }
 
     // --- stubs for scene access ---
@@ -426,6 +499,19 @@ public class Renderer : IRenderer
                     FragColor = vec4(ambient + diffuse, uColor.a);
                 }");
             _sceneShaderProgram = prog.GlProgramId;
+            GL.UseProgram(_sceneShaderProgram);
+            Console.Error.WriteLine($"[EnsureSceneShader] Loaded scene shader, prog={_sceneShaderProgram}");
+            int status;
+            GL.GetProgram(_sceneShaderProgram, GetProgramParameterName.LinkStatus, out status);
+            Console.Error.WriteLine($"[EnsureSceneShader] Link status: {status}");
+            if (status == 0) {
+                string infoLog = GL.GetProgramInfoLog(_sceneShaderProgram);
+                Console.Error.WriteLine($"[EnsureSceneShader] Link error: {infoLog}");
+                GL.DeleteProgram(_sceneShaderProgram);
+                _sceneShaderProgram = 0;
+                return 0;
+            }
+            Console.Error.WriteLine("[EnsureSceneShader] Shader linked OK");
             return _sceneShaderProgram;
         }
         catch (Exception ex)
@@ -538,8 +624,10 @@ public class Renderer : IRenderer
 
     public void BeginScene()
     {
-        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-        GL.Enable(EnableCap.DepthTest);
+        Console.Error.WriteLine($"[BeginScene] Win {_windowWidth}x{_windowHeight}");
+        GL.Clear(ClearBufferMask.ColorBufferBit);
+        ErrorCode err1 = GL.GetError();
+        Console.Error.WriteLine($"[BeginScene] Clear error: {err1}");
     }
 
     public void EndScene()

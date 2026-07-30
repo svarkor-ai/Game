@@ -124,14 +124,19 @@ public class GameLoop : IGameLoop
     {
         if (_stopped) return;
 
+        Console.Error.WriteLine($"[GameLoop.UpdateFrame] _stopped={_stopped} _running={_running} _accumulator={_accumulator}");
+
         // Accumulate and run fixed timestep updates
         var now = DateTime.UtcNow;
         var delta = (now - _lastFrameTime).TotalSeconds;
         _lastFrameTime = now;
 
+        Console.Error.WriteLine($"[GameLoop.UpdateFrame] delta={delta} _accumulator={_accumulator} after_add={_accumulator+delta}");
+
         _accumulator += delta;
         while (_accumulator >= _fixedTimestep)
         {
+            Console.Error.WriteLine($"[GameLoop.UpdateFrame] Running fixed update (timestep={_fixedTimestep})");
             foreach (var (update, name) in _updateHandlers)
             {
                 update(_fixedTimestep);
@@ -141,6 +146,7 @@ public class GameLoop : IGameLoop
 
         // Render at current time
         var interpolation = _accumulator / _fixedTimestep;
+        Console.Error.WriteLine($"[GameLoop.UpdateFrame] Running render with interpolation={interpolation}");
         foreach (var (render, name) in _renderHandlers)
         {
             render(interpolation);
@@ -175,7 +181,14 @@ public class GameLoop : IGameLoop
 
     private void RenderScene(double interpolation)
     {
+        Console.Error.WriteLine($"[RenderScene] Called! _world={_world != null} _registry={_registry != null} renderHandlers={_renderHandlers.Count}");
+
         _renderer.BeginScene();
+        Console.Error.WriteLine($"[RenderScene] BeginScene done. Now drawing tiles...");
+
+        // Ensure shader manager is set (called from GameWindow.Render())
+        // But RenderScene is called directly from UpdateFrame, so we need to set it here
+        // We need a way to access the shader manager — it's passed via Render() normally
 
         // Render world tiles
         if (_world != null)

@@ -24,22 +24,18 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     private float _frameTime = 0;
 
     public GameWindow(IRenderer renderer, IShaderManager shaderManager, ICamera camera, int width = 1280, int height = 720)
-        : base(new OTK.GameWindowSettings(), new OTK.NativeWindowSettings
-        {
-            Title = "Djurspel",
-            ClientSize = new Vector2i(width, height),
-            StartVisible = false,
-        })
-    {
-        _renderer = renderer;
-        _shaderManager = shaderManager;
-        _camera = camera;
-        _updateFrameCallback = _ => { }; // default no-op
-
-        // OpenGL-initiering — måste ske efter att fönstret skapats (OpenGL-kontext)
-        Context.MakeCurrent();
-        InitializeGL();
-    }
+         : base(new OTK.GameWindowSettings(), new OTK.NativeWindowSettings
+         {
+             Title = "Djurspel",
+             ClientSize = new Vector2i(width, height),
+             StartVisible = false,
+         })
+     {
+         _renderer = renderer;
+         _shaderManager = shaderManager;
+         _camera = camera;
+         _updateFrameCallback = _ => { }; // default no-op
+     }
 
     /// <summary>
     /// Set renderer and shader manager after window creation.
@@ -49,6 +45,8 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     {
         _renderer = renderer;
         _shaderManager = shaderManager;
+        // Also set shader manager on the renderer so DrawEntity can use it
+        renderer.SetShaderManager(shaderManager);
     }
 
     /// <summary>
@@ -65,20 +63,39 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     protected override void OnLoad()
     {
         base.OnLoad();
-        Context.MakeCurrent();
+        Console.Error.WriteLine("[OnLoad] Game loaded — initializing OpenGL...");
+        
+        // Initialize renderer (sets clear color, viewport, etc.)
+        _renderer.Initialize();
+        
+        Console.Error.WriteLine("[OnLoad] OpenGL initialized, GL context ready.");
     }
 
       protected override void OnUpdateFrame(FrameEventArgs e)
     {
         base.OnUpdateFrame(e);
+        Console.Error.WriteLine("[GameWindow.OnUpdateFrame] Called! _renderer=" + (_renderer == null ? "NULL" : "NOT_NULL") + " _callback=" + (_updateFrameCallback == null ? "NULL" : "NOT_NULL"));
         Update();
-        _updateFrameCallback(e.Time);
+        // NOTE: Rendering is handled entirely by GameLoop.RenderScene (called from _updateFrameCallback).
+        // Do NOT call Renderer.Render() here — it draws with _dummyWorld which is null!
+        if (_updateFrameCallback != null)
+            _updateFrameCallback(e.Time);
+        else
+            Console.Error.WriteLine("[GameWindow.OnUpdateFrame] WARNING: _updateFrameCallback is NULL!");
     }
 
     protected override void OnRenderFrame(FrameEventArgs e)
     {
         base.OnRenderFrame(e);
-        Render();
+        // Only swap buffers — BeginScene() is called in OnUpdateFrame BEFORE rendering.
+        // Do NOT call BeginScene() here or it will clear the frame we just drew!
+        SwapBuffers();
+    }
+
+    public void Render()
+    {
+        // Legacy — does nothing now that rendering happens in OnUpdateFrame
+        SwapBuffers();
     }
 
     protected override void OnResize(ResizeEventArgs e)
@@ -175,12 +192,6 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         _camera.Position = cameraPos;
     }
 
-    public void Render()
-    {
-        _renderer.Render(_camera, _shaderManager, _frameTime);
-        SwapBuffers();
-    }
-
     #endregion
 
     #region Data store
@@ -201,18 +212,6 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     }
 
     public object? GetData(string key) => _dataStore.TryGetValue(key, out var v) ? v : null;
-
-    #endregion
-
-    #region OpenGL-initiering
-
-    private void InitializeGL()
-    {
-        OSG.GL.Enable(OSG.EnableCap.DepthTest);
-        OSG.GL.Enable(OSG.EnableCap.CullFace);
-        OSG.GL.CullFace(OSG.CullFaceMode.Back);
-        OSG.GL.ClearColor(0.1f, 0.1f, 0.15f, 1f);
-    }
 
     #endregion
 

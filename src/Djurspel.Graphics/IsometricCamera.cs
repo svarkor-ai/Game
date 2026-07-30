@@ -54,4 +54,25 @@ public class IsometricCamera : ICamera
         // Stub — target must have TransformComponent
         // Implementation in gameplay phase
     }
+
+    public Matrix4 GetViewMatrix()
+    {
+        // Simple view matrix: translate by negative camera position
+        return Matrix4.CreateTranslation(-Position.X, -Position.Y, -Position.Z);
+    }
+
+    public Matrix4 GetProjectionMatrix()
+    {
+        // Orthographic projection covering the full 64x64 world
+        // X: 0..64, Z (Y in world): 0..64, Y (layer): 0..5
+        // We offset by -32 so the world center is at origin for rendering
+        float halfW = 32f;
+        float halfH = 32f;
+        float near = -10f;
+        float far = 10f;
+        return Matrix4.CreateOrthographicOffCenter(
+            -halfW, halfW,   // left, right
+            -halfH, halfH,   // bottom, top
+            near, far);
+    }
 }
