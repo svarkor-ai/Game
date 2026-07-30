@@ -199,7 +199,7 @@ public class Renderer : IRenderer
         try
         {
             var renderComp = e.GetComponent<RenderComponent>();
-            if (renderComp == null || !renderComp.Visible) return;
+            if (renderComp is null || !renderComp.Visible) return;
         }
         catch
         {
@@ -478,6 +478,5 @@ public class Renderer : IRenderer
 
     // --- stubs for scene access (wired when IWorld/IRegion exist) ---
     private readonly object _dummyWorld = null!;
-    private readonly object _dummyRegion = null!;
     private readonly object _dummyEntity = null!;
 }
