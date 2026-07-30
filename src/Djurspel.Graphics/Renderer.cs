@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using OpenTK.Mathematics;
 using OpenTK.Graphics.OpenGL;
 using Djurspel.Core;
@@ -19,10 +20,13 @@ public class Renderer : IRenderer
     private readonly int _windowHeight;
     private IShaderManager? _shaderManager;
     private int _sceneShaderProgram = 0;
+    private int? _spriteShaderProgram = null;
+    private ITextureLoader? _textureLoader;
+    private readonly Dictionary<string, TextureAsset> _textures = new();
 
     /// <summary>Cache for tile-mesh VAOs keyed by TileType name.</summary>
     private readonly Dictionary<string, (int vao, int vbo, int elementCount)> _tileMeshes = new();
-    private readonly Dictionary<string, (int vao, int vbo, int elementCount)> _entityMeshes = new();
+    private int _spriteVao = 0, _spriteVbo = 0, _spriteEbo = 0, _spriteIndexCount = 0;
 
     public Renderer(int width, int height)
     {
@@ -30,14 +34,24 @@ public class Renderer : IRenderer
         _windowHeight = height;
     }
 
+    /// <summary>Set the texture loader for sprite loading.</summary>
+    public void SetTextureLoader(ITextureLoader loader)
+    {
+        _textureLoader = loader;
+    }
+
     public void Dispose()
     {
         CleanupShaderProgram();
-        foreach (var (_, (vao, _, _)) in _tileMeshes)
+        if (_spriteShaderProgram != null) GL.DeleteProgram(_spriteShaderProgram.Value);
+        if (_spriteVao != 0) GL.DeleteVertexArray(_spriteVao);
+        if (_spriteVbo != 0) GL.DeleteBuffer(_spriteVbo);
+        if (_spriteEbo != 0) GL.DeleteBuffer(_spriteEbo);
+        foreach (var tex in _textures.Values)
         {
-            GL.DeleteVertexArray(vao);
+            GL.DeleteTexture(tex.GlHandle);
         }
-        foreach (var (_, (vao, _, _)) in _entityMeshes)
+        foreach (var (_, (vao, _, _)) in _tileMeshes)
         {
             GL.DeleteVertexArray(vao);
         }
@@ -51,7 +65,53 @@ public class Renderer : IRenderer
         GL.Enable(EnableCap.CullFace);
         GL.CullFace(CullFaceMode.Back);
         GL.Viewport(0, 0, _windowWidth, _windowHeight);
+        BuildSpriteMesh();
     }
+
+    #region Sprite Mesh
+
+    /// <summary>Create a quad mesh (2 triangles, 4 verts) for textured sprites.</summary>
+    private void BuildSpriteMesh()
+    {
+        // Quad vertices: pos(3) + uv(2) = 5 floats per vertex
+        // UV coords: (0,0) top-left, (1,1) bottom-right
+        float[] verts =
+        {
+            // pos.x   pos.y   pos.z   u   v
+            -0.5f, -0.5f, 0f, 0f, 1f,
+             0.5f, -0.5f, 0f, 1f, 1f,
+             0.5f,  0.5f, 0f, 1f, 0f,
+            -0.5f,  0.5f, 0f, 0f, 0f,
+        };
+        uint[] indices = { 0, 1, 2, 0, 2, 3 };
+
+        _spriteVao = GL.GenVertexArray();
+        GL.BindVertexArray(_spriteVao);
+
+        _spriteVbo = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ArrayBuffer, _spriteVbo);
+        GL.BufferData(BufferTarget.ArrayBuffer,
+            verts.Length * sizeof(float), verts, BufferUsageHint.StaticDraw);
+
+        _spriteEbo = GL.GenBuffer();
+        GL.BindBuffer(BufferTarget.ElementArrayBuffer, _spriteEbo);
+        GL.BufferData(BufferTarget.ElementArrayBuffer,
+            indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
+
+        // Position attribute (location 0)
+        GL.EnableVertexAttribArray(0);
+        GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
+        // UV attribute (location 1)
+        GL.EnableVertexAttribArray(1);
+        GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), 3 * sizeof(float));
+
+        GL.BindVertexArray(0);
+        _spriteIndexCount = indices.Length;
+    }
+
+    #endregion
+
+    #region Render
 
     public void Render(ICamera camera, IShaderManager shaderManager, float frameTime)
     {
@@ -76,9 +136,11 @@ public class Renderer : IRenderer
         // Draw tile map
         DrawTileMap(camera, 0.0f);
 
-        // Draw entities
+        // Draw entities with sprites
         DrawEntity(camera, 0.0f);
     }
+
+    #endregion
 
     #region Tile Map Rendering (public IRenderer interface)
 
@@ -87,7 +149,6 @@ public class Renderer : IRenderer
     /// </summary>
     public void DrawTileMap(object world, object region, float interpolation)
     {
-        // Delegate to the camera-based overload
         dynamic cam = world;
         DrawTileMap(cam, interpolation);
     }
@@ -98,12 +159,10 @@ public class Renderer : IRenderer
         int prog = EnsureSceneShader(_shaderManager);
         if (prog == 0) return;
 
-        // Get world via dynamic dispatch
         dynamic w = _dummyWorld;
         int width = w.Width;
         int height = w.Height;
 
-        // Get tile draw regions
         var regions = w.GetVisibleTiles();
         foreach (dynamic rd in regions)
         {
@@ -121,7 +180,6 @@ public class Renderer : IRenderer
                     string tileType = tile.Type.ToString();
                     if (tileType == "Void") continue;
 
-                    // Get or create tile mesh
                     string key = tileType;
                     if (!_tileMeshes.ContainsKey(key))
                     {
@@ -132,19 +190,16 @@ public class Renderer : IRenderer
 
                     var (vao, _, elemCount) = _tileMeshes[key];
 
-                    // Model matrix: translate to tile position, scale
                     Vector3 pos = new(x * TILE_SIZE, layer * TILE_SIZE, y * TILE_SIZE);
                     Matrix4 model = Matrix4.CreateScale(GetTileScale(tileType))
                         * Matrix4.CreateTranslation(pos);
                     SetUniformMat4(prog, "uModel", ref model);
 
-                    // Color - use tile's TintColor if available, otherwise default
                     Vector4 col;
                     try
                     {
                         if (tile.HasProperty("TintColor") && tile.TintColor != null)
                         {
-                            // System.Numerics.Vector4 -> OpenTK.Vector4
                             var tint = tile.TintColor;
                             col = new Vector4(tint.X, tint.Y, tint.Z, tint.W);
                         }
@@ -159,7 +214,6 @@ public class Renderer : IRenderer
                     }
                     SetUniform4(prog, "uColor", col);
 
-                    // Draw
                     GL.BindVertexArray(vao);
                     GL.DrawElements(PrimitiveType.Triangles, elemCount, DrawElementsType.UnsignedInt, 0);
                     GL.BindVertexArray(0);
@@ -174,57 +228,128 @@ public class Renderer : IRenderer
 
     /// <summary>
     /// Draws a single entity. Uses dynamic dispatch to get position and render component.
+    /// If SpriteName is set, draws a textured billboard quad.
     /// </summary>
     public void DrawEntity(object entity, float interpolation)
     {
-        // Delegate to the camera-based overload
-        dynamic cam = entity;
-        DrawEntity(cam, interpolation);
+        dynamic e = entity;
+
+        // Get position (Vec3I or Vector3)
+        dynamic pos = e.Position;
+        Vector3 worldPos = new(pos.X, pos.Y, pos.Z);
+
+        // Try to get RenderComponent
+        string? spriteName = null;
+        try
+        {
+            var renderComp = e.GetComponent<RenderComponent>();
+            if (renderComp is null || !renderComp.Visible) return;
+            spriteName = renderComp.SpriteName;
+        }
+        catch
+        {
+            // No render component — skip
+            return;
+        }
+
+        if (string.IsNullOrEmpty(spriteName)) return;
+
+        // Ensure sprite shader
+        if (_spriteShaderProgram == 0)
+        {
+            int spriteProg = BuildSpriteShader();
+            if (spriteProg == 0) return;
+            _spriteShaderProgram = spriteProg;
+        }
+        int prog = _spriteShaderProgram.Value;
+
+        // Load or get cached texture
+        string assetPath = $"sprites/{spriteName}";
+        if (!_textures.ContainsKey(assetPath) && _textureLoader != null)
+        {
+            // Try to load from assets directory
+            string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", $"{spriteName}.bmp");
+            if (!File.Exists(fullPath))
+            {
+                // Also check relative to working directory
+                fullPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", $"{spriteName}.bmp");
+            }
+            if (File.Exists(fullPath))
+            {
+                  try
+                {
+                    var asset = _textureLoader.LoadTexture(fullPath);
+                    _textures[assetPath] = asset;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Failed to load texture {fullPath}: {ex.Message}");
+                    return;
+                }
+            }
+            else
+            {
+                // No texture file — fall back to a solid color cube
+                Console.WriteLine($"Texture not found: {fullPath}, using colored cube fallback");
+                DrawEntityAsCube(e, worldPos);
+                return;
+            }
+        }
+
+        if (!_textures.TryGetValue(assetPath, out var tex))
+        {
+            DrawEntityAsCube(e, worldPos);
+            return;
+        }
+
+        // Billboard: create model matrix that translates to entity position
+        // and scales to a reasonable size
+        float spriteScale = 1.5f;
+        Vector3 center = new(worldPos.X, worldPos.Y, worldPos.Z);
+        Matrix4 model = Matrix4.CreateTranslation(center.X, center.Y, center.Z)
+            * Matrix4.CreateScale(spriteScale, spriteScale, spriteScale);
+
+        SetUniformMat4(prog, "uModel", ref model);
+        SetUniform1(prog, "uTexture", 0);
+
+        // Bind texture
+        GL.ActiveTexture(TextureUnit.Texture0);
+        GL.BindTexture(TextureTarget.Texture2D, tex.GlHandle);
+
+        // Draw quad
+        GL.BindVertexArray(_spriteVao);
+        GL.DrawElements(PrimitiveType.Triangles, _spriteIndexCount, DrawElementsType.UnsignedInt, 0);
+        GL.BindVertexArray(0);
+        GL.BindTexture(TextureTarget.Texture2D, 0);
     }
 
-    private void DrawEntity(ICamera camera, float interpolation)
+    private void DrawEntityAsCube(dynamic e, Vector3 worldPos)
     {
         if (_shaderManager == null) return;
         int prog = EnsureSceneShader(_shaderManager);
         if (prog == 0) return;
 
-        // Get world via dynamic dispatch
-        dynamic e = _dummyEntity;
-
-        // Get position via dynamic dispatch (Vec3I or Vector3)
-        dynamic pos = e.Position;
-        Vector3 worldPos = new(pos.X, pos.Y, pos.Z);
-
-        // Try to get RenderComponent
-        try
-        {
-            var renderComp = e.GetComponent<RenderComponent>();
-            if (renderComp is null || !renderComp.Visible) return;
-        }
-        catch
-        {
-            // Entity might not have components yet; draw anyway
-        }
-
-        // Use default entity mesh (small cube)
-        string key = "entity_default";
-        if (!_entityMeshes.ContainsKey(key))
-        {
-            var mesh = CreateBoxMesh(new Vector3(0.5f, 0.5f, 0.5f));
-            _entityMeshes[key] = mesh;
-        }
-
-        var (vao, _, elemCount) = _entityMeshes[key];
-        Matrix4 model = Matrix4.CreateTranslation(worldPos);
+        Vector3 size = new(0.5f, 0.5f, 0.5f);
+        Matrix4 model = Matrix4.CreateTranslation(worldPos)
+            * Matrix4.CreateScale(size);
         SetUniformMat4(prog, "uModel", ref model);
 
-        Vector4 col = new(1.0f, 0.5f, 0.0f, 1.0f);
+        Vector4 col = new(0.3f, 0.6f, 1.0f, 1.0f);
         SetUniform4(prog, "uColor", col);
 
+        if (!_entityMeshes.ContainsKey("_cube_"))
+        {
+            _entityMeshes["_cube_"] = CreateBoxMesh(size);
+        }
+        var (vao, _, elemCount) = _entityMeshes["_cube_"];
         GL.BindVertexArray(vao);
         GL.DrawElements(PrimitiveType.Triangles, elemCount, DrawElementsType.UnsignedInt, 0);
         GL.BindVertexArray(0);
     }
+
+    // --- stubs for scene access ---
+    private readonly object _dummyWorld = null!;
+    private readonly object _dummyEntity = null!;
 
     #endregion
 
@@ -310,6 +435,42 @@ public class Renderer : IRenderer
         }
     }
 
+    /// <summary>Build the sprite shader program (texture + model matrix).</summary>
+    private int BuildSpriteShader()
+    {
+        var shaderManager = _shaderManager ?? throw new InvalidOperationException("No shader manager available");
+        try
+        {
+            var prog = shaderManager.Load("sprite",
+                @"#version 330 core
+                layout(location = 0) in vec3 aPos;
+                layout(location = 1) in vec2 aUV;
+                out vec2 vUV;
+                uniform mat4 uModel;
+                uniform mat4 uView;
+                uniform mat4 uProjection;
+                void main()
+                {
+                    vUV = aUV;
+                    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+                }",
+                @"#version 330 core
+                in vec2 vUV;
+                out vec4 FragColor;
+                uniform sampler2D uTexture;
+                void main()
+                {
+                    FragColor = texture(uTexture, vUV);
+                }");
+            return prog.GlProgramId;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Sprite shader load failed: {ex.Message}");
+            return 0;
+        }
+    }
+
     private void CleanupShaderProgram()
     {
         if (_sceneShaderProgram != 0)
@@ -329,6 +490,12 @@ public class Renderer : IRenderer
     {
         int loc = GL.GetUniformLocation(prog, name);
         if (loc >= 0) GL.Uniform4(loc, color.X, color.Y, color.Z, color.W);
+    }
+
+    private void SetUniform1(int prog, string name, int value)
+    {
+        int loc = GL.GetUniformLocation(prog, name);
+        if (loc >= 0) GL.Uniform1(loc, value);
     }
 
     #endregion
@@ -355,20 +522,17 @@ public class Renderer : IRenderer
 
     public void DrawSphere(Vector3 position, float radius, Vector4 color, IShaderManager shaderManager)
     {
-        // Stub: draw a small cube as placeholder for sphere
         Vector3 size = new(radius * 2f, radius * 2f, radius * 2f);
         DrawCube(position, size, color, shaderManager);
     }
 
     public void DrawCylinder(Vector3 position, float radius, float height, Vector4 color, IShaderManager shaderManager)
     {
-        // Stub: draw a scaled cube as placeholder
         DrawCube(position, new(radius * 2f, height, radius * 2f), color, shaderManager);
     }
 
     public void DrawPlane(Vector3 position, Vector2 size, Vector4 color, IShaderManager shaderManager)
     {
-        // Stub: draw a flat cube
         DrawCube(position, new(size.X, 0.01f, size.Y), color, shaderManager);
     }
 
@@ -387,14 +551,15 @@ public class Renderer : IRenderer
 
     #region Geometry Helpers
 
+    private static readonly Dictionary<string, (int vao, int vbo, int elementCount)> _entityMeshes = new();
+
     private static (int vao, int vbo, int elementCount) CreateBoxMesh(Vector3 size)
     {
         float hx = size.X / 2f, hy = size.Y / 2f, hz = size.Z / 2f;
 
-        // 8 vertices: position (3) + normal (3) = 6 floats per vertex
         float[] vertices = new float[48]; // 8 verts * 6 floats
 
-        // Front face (z = +hz)
+        // Front face
         vertices[0] = -hx; vertices[1] = -hy; vertices[2] = hz;
         vertices[3] = 0; vertices[4] = 0; vertices[5] = 1;
         vertices[6] = hx; vertices[7] = -hy; vertices[8] = hz;
@@ -404,7 +569,7 @@ public class Renderer : IRenderer
         vertices[18] = -hx; vertices[19] = hy; vertices[20] = hz;
         vertices[21] = 0; vertices[22] = 0; vertices[23] = 1;
 
-        // Back face (z = -hz)
+        // Back face
         vertices[24] = hx; vertices[25] = -hy; vertices[26] = -hz;
         vertices[27] = 0; vertices[28] = 0; vertices[29] = -1;
         vertices[30] = -hx; vertices[31] = -hy; vertices[32] = -hz;
@@ -414,7 +579,6 @@ public class Renderer : IRenderer
         vertices[42] = hx; vertices[43] = hy; vertices[44] = -hz;
         vertices[45] = 0; vertices[46] = 0; vertices[47] = -1;
 
-        // 36 indices
         uint[] indices = new uint[36];
         indices[0] = 0; indices[1] = 1; indices[2] = 2;  indices[3] = 0; indices[4] = 2; indices[5] = 3;
         indices[6] = 4; indices[7] = 5; indices[8] = 6;  indices[9] = 4; indices[10] = 6; indices[11] = 7;
@@ -475,8 +639,4 @@ public class Renderer : IRenderer
     }
 
     #endregion
-
-    // --- stubs for scene access (wired when IWorld/IRegion exist) ---
-    private readonly object _dummyWorld = null!;
-    private readonly object _dummyEntity = null!;
 }
