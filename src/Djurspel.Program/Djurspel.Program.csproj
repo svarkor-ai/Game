@@ -6,11 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Djurspel.Core\Djurspel.Core.csproj" />
-    <ProjectReference Include="..\Djurspel.Entities\Djurspel.Entities.csproj" />
-    <ProjectReference Include="..\Djurspel.Graphics\Djurspel.Graphics.csproj" />
-    <ProjectReference Include="..\Djurspel.World\Djurspel.World.csproj" />
-    <ProjectReference Include="..\Djurspel.Gameplay\Djurspel.Gameplay.csproj" />
-    <ProjectReference Include="..\Djurspel.Game\Djurspel.Game.csproj" />
+    <ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />
+    <ProjectReference Include="../Djurspel.Entities/Djurspel.Entities.csproj" />
+    <ProjectReference Include="../Djurspel.Graphics/Djurspel.Graphics.csproj" />
+    <ProjectReference Include="../Djurspel.World/Djurspel.World.csproj" />
+    <ProjectReference Include="../Djurspel.Gameplay/Djurspel.Gameplay.csproj" />
+    <ProjectReference Include="../Djurspel.Game/Djurspel.Game.csproj" />
   </ItemGroup>
 </Project>

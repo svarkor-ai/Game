@@ -6,8 +6,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Djurspel.Core\Djurspel.Core.csproj" />
-    <ProjectReference Include="..\Djurspel.Entities\Djurspel.Entities.csproj" />
+    <ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />
+    <ProjectReference Include="../Djurspel.Entities/Djurspel.Entities.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OpenTK" Version="4.8.2" />

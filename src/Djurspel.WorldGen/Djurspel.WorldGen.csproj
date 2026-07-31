@@ -8,9 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Djurspel.Core\Djurspel.Core.csproj" />
-    <ProjectReference Include="..\Djurspel.Entities\Djurspel.Entities.csproj" />
-    <ProjectReference Include="..\Djurspel.World\Djurspel.World.csproj" />
+    <ProjectReference Include="../Djurspel.Core/Djurspel.Core.csproj" />
+    <ProjectReference Include="../Djurspel.Entities/Djurspel.Entities.csproj" />
+    <ProjectReference Include="../Djurspel.World/Djurspel.World.csproj" />
   </ItemGroup>
 
 </Project>
