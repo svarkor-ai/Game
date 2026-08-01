@@ -1,11 +1,12 @@
 using Djurspel.Core;
-using Djurspel.Graphics;
 using Djurspel.Gameplay;
+using Djurspel.Graphics;
 using OpenTK;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
+using System.Linq;
 
 namespace Djurspel.Game;
 
@@ -21,33 +22,52 @@ public class ARPGGameBootstrapper
     private LootDropSystem? _lootSystem;
     private UIManager? _uiManager;
     private ARPGInputManager? _inputManager;
+    private InventorySystem? _inventorySystem;
+    private QuestSystem? _questSystem;
     private Vector2 _playerPosition = new(0, 0);
     private int _playerHealth = 100;
     private int _playerMaxHealth = 100;
+    private int _playerGold = 0;
     private bool _gameInitialized = false;
     private IGameWindow? _window;
+    private Matrix4? _projMatrix;
+    private Matrix4? _viewMatrix;
 
     public void Initialize(IGameWindow window, IEventDispatcher? dispatcher)
     {
         _window = window;
         
-        // Create ARPG components
+        // Create camera first
         _camera = new TopDownCamera
         {
             WindowWidth = window?.Width ?? 1280,
             WindowHeight = window?.Height ?? 720
         };
         
-        _spriteRenderer = new SpriteBatchRenderer();
+        // Initialize camera to get initial matrices
+        _camera.SetTarget(_playerPosition);
+        _camera.Update(0.016f);
+        
+        // Get projection and view matrices for SpriteBatchRenderer
+        _projMatrix = _camera!.GetProjectionMatrix();
+        _viewMatrix = _camera!.GetViewMatrix();
+        
+        // Create SpriteBatchRenderer with the matrices
+        _spriteRenderer = new SpriteBatchRenderer(_projMatrix.Value, _viewMatrix.Value);
+        
         _inputManager = new ARPGInputManager(window!, dispatcher);
         _uiManager = new UIManager(new Vector2(
             window?.Width ?? 1280,
             window?.Height ?? 720
         ));
         
+        // Create inventory and quest systems
+        _inventorySystem = new InventorySystem();
+        _questSystem = new QuestSystem();
+        
         // Create enemies
         Random random = new(42); // Fixed seed for consistency
-        _enemies = new EnemyAI[5];
+        _enemies = new EnemyAI[8]; // More enemies!
         for (int i = 0; i < _enemies.Length; i++)
         {
             float angle = (float)(random.NextDouble() * 2.0 * Math.PI);
@@ -62,7 +82,7 @@ public class ARPGGameBootstrapper
         _lootSystem = new LootDropSystem();
         
         _gameInitialized = true;
-        Console.Error.WriteLine("[ARPG] Game bootstrapped with " + _enemies.Length + " enemies");
+        Console.Error.WriteLine("[ARPG] Game bootstrapped with " + _enemies.Length + " enemies, inventory and quests!");
     }
 
     public void Update(float frameTime)
@@ -98,6 +118,11 @@ public class ARPGGameBootstrapper
                     if (enemy.IsDead)
                     {
                         _lootSystem!.DropLoot(enemy.Position, 3);
+                        _questSystem!.TrackKill();
+                        
+                        // Give gold reward
+                        _playerGold += 10;
+                        
                         // Respawn enemy elsewhere
                         Random random = new();
                         float angle = (float)(random.NextDouble() * 2.0 * Math.PI);
@@ -134,27 +159,15 @@ public class ARPGGameBootstrapper
             return;
         
         // Clear screen
-        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         GL.ClearColor(0.1f, 0.1f, 0.15f, 1.0f); // Dark background
+        GL.Clear(ClearBufferMask.ColorBufferBit);
         
-        // Begin sprite batch
-        _spriteRenderer.BeginBatch();
+        // Update camera matrices (they may have changed)
+        _projMatrix = _camera!.GetProjectionMatrix();
+        _viewMatrix = _camera!.GetViewMatrix();
         
-        // Set up shaders for 2D rendering
-       shaderManager.Bind(shaderManager.Get("SpriteBatch") ?? new Djurspel.Graphics.ShaderProgram());
-        var projMatrix = _camera!.GetProjectionMatrix();
-        var viewMatrix = _camera!.GetViewMatrix();
-        // Convert to float[] for SetMat4 — OpenTK Matrix4 is column-major
-        float[] projFloats = new float[16];
-        float[] viewFloats = new float[16];
-        for (int row = 0; row < 4; row++)
-        for (int col = 0; col < 4; col++)
-        {
-            projFloats[col * 4 + row] = projMatrix[row, col];
-            viewFloats[col * 4 + row] = viewMatrix[row, col];
-        }
-        shaderManager.SetMat4("uProjection", projFloats);
-        shaderManager.SetMat4("uView", viewFloats);
+        // Begin sprite batch (matrices are already set in constructor)
+        _spriteRenderer!.BeginBatch();
         
         // Draw floor tiles (simple grid)
         _spriteRenderer.DrawQuad(new Vector2(-20, -20), new Vector2(40, 40), new Vector4(0.2f, 0.2f, 0.25f, 1.0f));
@@ -178,16 +191,8 @@ public class ARPGGameBootstrapper
         // Draw enemies
         foreach (var enemy in _enemies)
         {
-            Vector4 enemyColor = enemy.CurrentState switch
-            {
-                EnemyAI.State.Wander => new Vector4(0.8f, 0.2f, 0.2f, 1.0f), // Red
-                EnemyAI.State.Chase => new Vector4(1.0f, 0.4f, 0.0f, 1.0f), // Orange
-                EnemyAI.State.Attack => new Vector4(1.0f, 0.0f, 0.0f, 1.0f), // Bright red
-                _ => new Vector4(0.5f, 0.5f, 0.5f, 1.0f) // Gray
-            };
-            
             // Draw enemy as a circle (approximated with quad)
-            _spriteRenderer.DrawQuad(enemy.Position, new Vector2(0.5f, 0.5f), enemyColor);
+            _spriteRenderer.DrawQuad(enemy.Position, new Vector2(0.5f, 0.5f), enemy.GetColor());
             
             // Draw health bar above enemy
             float healthPercent = (float)enemy.Health / enemy.MaxHealth;
@@ -242,7 +247,7 @@ public class ARPGGameBootstrapper
         }
         
         // Draw inventory if open
-        if (_uiManager.IsInventoryOpen)
+        if (_uiManager.IsInventoryOpen && _inventorySystem != null)
         {
             // Draw inventory background
             _spriteRenderer!.DrawQuad(new Vector2(100, 100), new Vector2(200, 150), new Vector4(0.1f, 0.1f, 0.2f, 0.9f));
@@ -257,12 +262,36 @@ public class ARPGGameBootstrapper
             }
         }
         
+        // Draw quest info
+        DrawQuestInfo();
+        
         // Draw controls info
         DrawControlsInfo();
+        
+        // Draw gold
+        DrawGold();
+    }
+
+    private void DrawQuestInfo()
+    {
+        if (_questSystem == null || _spriteRenderer == null) return;
+        
+        float yPos = 10;
+        foreach (var quest in _questSystem.GetProgress())
+        {
+            string questText = quest.Completed ? $"✅ {quest.Title} (OK!)" : $"🎯 {quest.Title} ({quest.CurrentKills}/{quest.RequiredKills})";
+            
+            // Draw background for quest
+            _spriteRenderer.DrawQuad(new Vector2(10, yPos), new Vector2(150, 15), new Vector4(0.0f, 0.0f, 0.0f, 0.7f));
+            
+            yPos += 20;
+        }
     }
 
     private void DrawControlsInfo()
     {
+        if (_spriteRenderer == null) return;
+        
         // Simple controls overlay
         string[] controls = new string[]
         {
@@ -277,12 +306,22 @@ public class ARPGGameBootstrapper
         foreach (var control in controls)
         {
             // Draw a simple background for text
-            _spriteRenderer!.DrawQuad(new Vector2(10, yPos), new Vector2(120, 12), new Vector4(0.0f, 0.0f, 0.0f, 0.5f));
+            _spriteRenderer.DrawQuad(new Vector2(10, yPos), new Vector2(120, 12), new Vector4(0.0f, 0.0f, 0.0f, 0.5f));
             yPos += 15;
         }
+    }
+
+    private void DrawGold()
+    {
+        if (_spriteRenderer == null) return;
+        
+        // Draw gold counter
+        string goldText = $"💰 {_playerGold} Gold";
+        _spriteRenderer.DrawQuad(new Vector2(10, 200), new Vector2(80, 15), new Vector4(0.0f, 0.0f, 0.0f, 0.5f));
     }
 
     public Vector2 GetPlayerPosition() => _playerPosition;
     public int GetPlayerHealth() => _playerHealth;
     public int GetPlayerMaxHealth() => _playerMaxHealth;
+    public int GetPlayerGold() => _playerGold;
 }

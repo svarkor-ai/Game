@@ -24,12 +24,12 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     private float _frameTime = 0;
 
     public GameWindow(IRenderer renderer, IShaderManager shaderManager, ICamera camera, int width = 1280, int height = 720)
-         : base(new OTK.GameWindowSettings(), new OTK.NativeWindowSettings
-         {
-             Title = "Djurspel",
-             ClientSize = new Vector2i(width, height),
-             StartVisible = false,
-         })
+          : base(new OTK.GameWindowSettings(), new OTK.NativeWindowSettings
+          {
+              Title = "Djurspel",
+              ClientSize = new Vector2i(width, height),
+              StartVisible = true,
+          })
      {
          _renderer = renderer;
          _shaderManager = shaderManager;

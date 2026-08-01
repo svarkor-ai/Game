@@ -1,172 +1,218 @@
 using OpenTK.Mathematics;
-using Djurspel.Core;
 using System;
-using System.Collections.Generic;
 
 namespace Djurspel.Gameplay;
 
 /// <summary>
-/// Enemy AI med wander/chase/attack state maskin.
-/// Simulerar enkelt beteende för fiender i ARPG.
+/// Fiende med AI, olika typer och beteenden.
 /// </summary>
 public class EnemyAI
 {
+    public enum Type
+    {
+        Goblin,    // Liten, snabb, svag
+        Orc,       // Stor, långsam, stark
+        Skeleton,  // Medelstor, medelstark
+        Demon      // Stor, långsam, mycket stark
+    }
+
     public enum State
     {
+        Idle,
         Wander,
         Chase,
         Attack,
-        Retreat
+        Flee
     }
 
     public Vector2 Position { get; set; }
-    public Vector2 Target { get; set; }
-    public float Speed { get; set; } = 2.0f;
-    public float DetectionRange { get; set; } = 8.0f;
-    public float AttackRange { get; set; } = 1.5f;
-    public float WanderRadius { get; set; } = 5.0f;
-    public float WanderTime { get; set; } = 3.0f;
+    public Type EnemyType { get; }
     public State CurrentState { get; set; }
-    public float StateTimer { get; set; }
-    public int Health { get; set; } = 100;
-    public int MaxHealth { get; set; } = 100;
-    public int AttackDamage { get; set; } = 10;
-    public float AttackCooldown { get; set; } = 1.0f;
-    public float LastAttackTime { get; set; }
-
+    public int Health { get; set; }
+    public int MaxHealth { get; }
+    public int Damage { get; }
+    public float Speed { get; }
+    public float AttackRange { get; }
+    public float ChaseRange { get; }
+    public bool IsDead => Health <= 0;
+    public Vector2 Velocity { get; private set; }
+    
+    private readonly Random _rng;
+    private float _wanderTimer;
     private Vector2 _wanderTarget;
-    private Random _random;
+    private float _attackCooldown;
+    private float _fleeThreshold;
+    
+    private static readonly Vector4[] TypeColors = {
+        new Vector4(0.6f, 0.8f, 0.2f, 1.0f), // Goblin - green
+        new Vector4(0.8f, 0.4f, 0.2f, 1.0f), // Orc - orange
+        new Vector4(0.9f, 0.9f, 0.9f, 1.0f), // Skeleton - white
+        new Vector4(0.9f, 0.1f, 0.1f, 1.0f)  // Demon - red
+    };
 
-    public EnemyAI(Vector2 startPosition, Random? random = null)
+    public EnemyAI(Vector2 position, Random? rng = null)
     {
-        Position = startPosition;
-        Target = startPosition;
-        _random = random ?? new Random();
-        _wanderTarget = GenerateWanderTarget();
+        Position = position;
+        _rng = rng ?? new Random();
+        EnemyType = (Type)_rng.Next(0, 4);
+        
+        // Set properties based on type
+        switch (EnemyType)
+        {
+            case Type.Goblin:
+                Health = MaxHealth = 30;
+                Damage = 5;
+                Speed = 3.0f;
+                AttackRange = 1.0f;
+                ChaseRange = 5.0f;
+                _fleeThreshold = 0.3f;
+                break;
+            case Type.Orc:
+                Health = MaxHealth = 60;
+                Damage = 15;
+                Speed = 1.5f;
+                AttackRange = 1.5f;
+                ChaseRange = 4.0f;
+                _fleeThreshold = 0.2f;
+                break;
+            case Type.Skeleton:
+                Health = MaxHealth = 45;
+                Damage = 10;
+                Speed = 2.0f;
+                AttackRange = 1.2f;
+                ChaseRange = 4.5f;
+                _fleeThreshold = 0.25f;
+                break;
+            case Type.Demon:
+                Health = MaxHealth = 100;
+                Damage = 25;
+                Speed = 1.0f;
+                AttackRange = 2.0f;
+                ChaseRange = 6.0f;
+                _fleeThreshold = 0.1f;
+                break;
+        }
+        
         CurrentState = State.Wander;
-        StateTimer = 0f;
+        _wanderTimer = 0;
+        _attackCooldown = 0;
+        GenerateWanderTarget();
     }
 
-    /// <summary>
-    /// Uppdaterar AI med given frameTime och player position.
-    /// </summary>
-    public void Update(float frameTime, Vector2 playerPosition, IEventDispatcher? dispatcher = null)
+    public void Update(float frameTime, Vector2 playerPosition)
     {
-        StateTimer += frameTime;
+        if (IsDead) return;
+        
+        _attackCooldown = Math.Max(0, _attackCooldown - frameTime);
         
         float distanceToPlayer = Vector2.Distance(Position, playerPosition);
+        bool shouldFlee = Health < MaxHealth * _fleeThreshold;
         
         // State machine
         switch (CurrentState)
         {
+            case State.Idle:
+                UpdateIdle(frameTime);
+                break;
             case State.Wander:
                 UpdateWander(frameTime);
-                
-                // Transition to chase if player is near
-                if (distanceToPlayer < DetectionRange)
-                {
-                    CurrentState = State.Chase;
-                    Target = playerPosition;
-                }
                 break;
-                
             case State.Chase:
                 UpdateChase(frameTime, playerPosition);
-                
-                // Transition to attack if in range
-                if (distanceToPlayer < AttackRange)
-                {
-                    CurrentState = State.Attack;
-                    StateTimer = 0f;
-                }
-                
-                // Return to wander if player moved too far
-                if (distanceToPlayer > DetectionRange * 1.5f)
-                {
-                    CurrentState = State.Wander;
-                    _wanderTarget = GenerateWanderTarget();
-                }
                 break;
-                
             case State.Attack:
                 UpdateAttack(frameTime, playerPosition);
-                
-                // Return to chase if player moved away during attack
-                if (distanceToPlayer > AttackRange * 1.2f)
-                {
-                    CurrentState = State.Chase;
-                    Target = playerPosition;
-                }
-                
-                // Return to wander if attacked for too long without killing player
-                if (StateTimer > 5.0f)
-                {
-                    CurrentState = State.Wander;
-                    _wanderTarget = GenerateWanderTarget();
-                }
                 break;
-                
-            case State.Retreat:
-                UpdateRetreat(frameTime);
+            case State.Flee:
+                UpdateFlee(frameTime);
                 break;
+        }
+        
+        // State transitions
+        if (shouldFlee && !IsDead)
+        {
+            CurrentState = State.Flee;
+        }
+        else if (distanceToPlayer <= AttackRange && _attackCooldown <= 0)
+        {
+            CurrentState = State.Attack;
+        }
+        else if (distanceToPlayer <= ChaseRange)
+        {
+            CurrentState = State.Chase;
+        }
+        else if (distanceToPlayer > ChaseRange * 1.5f)
+        {
+            CurrentState = State.Idle;
+        }
+    }
+
+    private void UpdateIdle(float frameTime)
+    {
+        _wanderTimer -= frameTime;
+        if (_wanderTimer <= 0)
+        {
+            CurrentState = State.Wander;
+            GenerateWanderTarget();
         }
     }
 
     private void UpdateWander(float frameTime)
     {
-        // Move towards wander target
-        float distance = Vector2.Distance(Position, _wanderTarget);
-        
-        if (distance < 0.5f)
+        float distanceToTarget = Vector2.Distance(Position, _wanderTarget);
+        if (distanceToTarget > 0.1f)
         {
-            // Choose new wander target
-            _wanderTarget = GenerateWanderTarget();
-            StateTimer = 0f;
+            Vector2 direction = Vector2.Normalize(_wanderTarget - Position);
+            Velocity = direction * Speed * 0.5f;
+            Position += Velocity * frameTime;
         }
         else
         {
-            Vector2 direction = (_wanderTarget - Position).Normalized();
-            Position += direction * Speed * 0.5f * frameTime; // Wander at half speed
+            CurrentState = State.Idle;
+            _wanderTimer = 2.0f + (float)_rng.NextDouble() * 3.0f;
         }
     }
 
     private void UpdateChase(float frameTime, Vector2 playerPosition)
     {
-        // Move directly towards player
-        Vector2 direction = (playerPosition - Position).Normalized();
-        Position += direction * Speed * frameTime;
+        Vector2 direction = Vector2.Normalize(playerPosition - Position);
+        Velocity = direction * Speed;
+        Position += Velocity * frameTime;
     }
 
     private void UpdateAttack(float frameTime, Vector2 playerPosition)
     {
-        // Face towards player and attack
-        if (StateTimer >= AttackCooldown)
+        if (_attackCooldown <= 0)
         {
-            // Perform attack
-            // In a full implementation, this would trigger combat
-            // For now, just log the attack event
-            if (frameTime > 0.1f) // Prevent spam
-            {
-                StateTimer = 0f;
-            }
+            // Attack!
+            _attackCooldown = 1.0f;
+            // Return damage that would be dealt
+            // In real implementation, this would damage the player
         }
     }
 
-    private void UpdateRetreat(float frameTime)
+    private void UpdateFlee(float frameTime)
     {
-        // Move away from target
-        Vector2 direction = (Position - Target).Normalized();
-        Position += direction * Speed * frameTime;
+        // Flee away from player
+        Vector2 direction = Vector2.Normalize(Position - new Vector2(0, 0)); // Flee from origin
+        Velocity = direction * Speed;
+        Position += Velocity * frameTime;
+        
+        // Return to wander when health is low enough
+        if (Health > MaxHealth * 0.5f)
+        {
+            CurrentState = State.Wander;
+            GenerateWanderTarget();
+        }
     }
 
-    private Vector2 GenerateWanderTarget()
+    private void GenerateWanderTarget()
     {
-        float angle = (float)(_random.NextDouble() * 2.0 * Math.PI);
-        float radius = (float)(_random.NextDouble() * WanderRadius);
-        
-        return new Vector2(
-            Position.X + MathF.Cos(angle) * radius,
-            Position.Y + MathF.Sin(angle) * radius
+        float angle = (float)_rng.NextDouble() * MathF.PI * 2;
+        float distance = 2.0f + (float)_rng.NextDouble() * 3.0f;
+        _wanderTarget = Position + new Vector2(
+            MathF.Cos(angle) * distance,
+            MathF.Sin(angle) * distance
         );
     }
 
@@ -175,5 +221,5 @@ public class EnemyAI
         Health = Math.Max(0, Health - damage);
     }
 
-    public bool IsDead => Health <= 0;
+    public Vector4 GetColor() => TypeColors[(int)EnemyType];
 }

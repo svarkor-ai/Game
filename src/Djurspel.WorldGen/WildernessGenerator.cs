@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using OpenTK.Mathematics;
 using Djurspel.Core;
 using Djurspel.Entities;
 using Djurspel.World;
@@ -6,195 +8,263 @@ using Djurspel.World;
 namespace Djurspel.WorldGen;
 
 /// <summary>
-/// Generates outdoor wilderness areas using Perlin noise for terrain variation.
-/// Creates ground, water, and path tiles based on noise thresholds.
+/// Wilderness generator — generates a top-down 2D world with various terrain types.
+/// Uses noise-based generation for natural-looking terrain.
 /// </summary>
 public class WildernessGenerator : IWorldGenerator
 {
-    private readonly Random _rng;
-    private readonly SimplexNoise _noise;
-
-    public WildernessGenerator(Random? rng = null)
+    private static readonly TileData TileGrass = new()
     {
-        _rng = rng ?? new Random();
-        _noise = new SimplexNoise(_rng.Next());
+        Type = TileType.Floor,
+        Collision = TileCollision.Walkable,
+        TintColor = new System.Numerics.Vector4(0.2f, 0.5f, 0.2f, 1.0f)
+    };
+
+    private static readonly TileData TileForest = new()
+    {
+        Type = TileType.Wall,
+        Collision = TileCollision.Solid,
+        TintColor = new System.Numerics.Vector4(0.1f, 0.3f, 0.1f, 1.0f)
+    };
+
+    private static readonly TileData TileWater = new()
+    {
+        Type = TileType.Water,
+        Collision = TileCollision.Water,
+        TintColor = new System.Numerics.Vector4(0.1f, 0.2f, 0.6f, 1.0f)
+    };
+
+    private static readonly TileData TileStone = new()
+    {
+        Type = TileType.Floor,
+        Collision = TileCollision.Walkable,
+        TintColor = new System.Numerics.Vector4(0.4f, 0.4f, 0.4f, 1.0f)
+    };
+
+    private static readonly TileData TileSand = new()
+    {
+        Type = TileType.Floor,
+        Collision = TileCollision.Walkable,
+        TintColor = new System.Numerics.Vector4(0.8f, 0.7f, 0.3f, 1.0f)
+    };
+
+    private static readonly TileData TileVoid = new()
+    {
+        Type = TileType.Void,
+        Collision = TileCollision.Solid,
+        TintColor = new System.Numerics.Vector4(0.05f, 0.05f, 0.05f, 1.0f)
+    };
+
+    private readonly Random _rng;
+    private readonly int _seed;
+
+    public WildernessGenerator(int? seed = null)
+    {
+        _seed = seed ?? Random.Shared.Next();
+        _rng = new Random(_seed);
     }
 
     public GeneratedLevel GenerateDungeon(int width, int height, int floor, Random? rng = null)
     {
-        // Delegate to RoomDungeonGenerator for dungeon generation
-        var roomGen = new RoomDungeonGenerator(rng);
+        var dungeonGen = new RoomDungeonGenerator(rng ?? _rng);
         
-        // Calculate room parameters based on floor
-        int minWidth = 4;
-        int minHeight = 4;
-        int maxWidth = Math.Min(12, width / 4);
-        int maxHeight = Math.Min(8, height / 4);
-        int minRooms = Math.Max(3, (width * height) / 300);
-        int maxRooms = Math.Min(20, (width * height) / 200);
+        // Use RoomDungeonGenerator for dungeon generation
+        var level = dungeonGen.Generate(
+            minWidth: 5, minHeight: 5,
+            maxWidth: 15, maxHeight: 20,
+            minRooms: 3 + floor, maxRooms: 8 + floor,
+            floor: floor);
 
-        return roomGen.Generate(minWidth, minHeight, maxWidth, maxHeight, minRooms, maxRooms, floor);
+        // Convert dungeon tiles to our tile system
+        return ConvertDungeonLevel(level, width, height);
     }
 
     public GeneratedLevel GenerateWilderness(int width, int height, Random? rng = null)
     {
-        Random localRng = rng ?? _rng;
-        SimplexNoise localNoise = new SimplexNoise(localRng.Next());
+        var localRng = rng ?? _rng;
+        var level = new GeneratedLevel();
         
         // Generate tile grid
-        TileData[,] grid = new TileData[width, height];
+        var grid = new TileData[width, height];
         
-        // Noise scale and thresholds
-        double scale = 0.05;
-        double waterThreshold = 0.1;
-        double pathThreshold = 0.3;
-        
-        // Fill grid with noise values
-        double[,] noiseValues = new double[width, height];
+        // Initialize with void
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                double nx = x * scale;
-                double ny = y * scale;
-                noiseValues[x, y] = localNoise.GetNoise2D(nx, ny);
+                grid[x, y] = TileVoid;
             }
         }
-        
-        // Convert noise values to tiles
-        int playerX = width / 2;
-        int playerY = height / 2;
-        
+
+        // Generate terrain using simple noise
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
-                double value = noiseValues[x, y];
+                float elevation = GetElevation(x, y, width, height);
+                float moisture = GetMoisture(x, y, width, height);
+                
                 TileData tile;
                 
-                if (value < waterThreshold)
+                if (elevation < 0.2f)
                 {
-                    tile = new TileData
-                    {
-                        Type = TileType.Water,
-                        Collision = TileCollision.Water,
-                        TintColor = new(0.2f, 0.3f, 0.6f, 1f)
-                    };
+                    // Water
+                    tile = TileWater;
                 }
-                else if (value < pathThreshold)
+                else if (elevation < 0.25f)
                 {
-                    tile = new TileData
+                    // Beach/sand
+                    tile = TileSand;
+                }
+                else if (elevation < 0.7f)
+                {
+                    // Grassland
+                    if (moisture > 0.6f && localRng.NextDouble() < 0.3f)
                     {
-                        Type = TileType.Ground,
-                        Collision = TileCollision.Walkable,
-                        TintColor = new(0.4f, 0.5f, 0.3f, 1f)
-                    };
+                        tile = TileForest; // Dense forest
+                    }
+                    else
+                    {
+                        tile = TileGrass;
+                    }
                 }
                 else
                 {
-                    // Higher ground - maybe walls or decorative features
-                    tile = new TileData
-                    {
-                        Type = TileType.Ground,
-                        Collision = TileCollision.Walkable,
-                        TintColor = new(0.3f, 0.4f, 0.25f, 1f)
-                    };
-                }
-                
-                // Ensure player start is on walkable ground
-                if (x == playerX && y == playerY)
-                {
-                    tile = new TileData
-                    {
-                        Type = TileType.Ground,
-                        Collision = TileCollision.Walkable,
-                        TintColor = new(0.6f, 0.55f, 0.5f, 1f)
-                    };
+                    // Mountains/stone
+                    tile = TileStone;
                 }
                 
                 grid[x, y] = tile;
             }
         }
+
+        // Find a valid starting position (grassy area)
+        Vec3I playerStart = FindPlayerStart(grid, width, height);
         
-        // Generate spawns
-        var enemies = GenerateEnemySpawns(grid, width, height, localRng);
-        var loot = GenerateLootSpawns(grid, width, height, localRng);
-        
+        // Generate enemy and loot spawns
+        var enemies = GenerateSpawns(grid, width, height, "Enemy", localRng, count: 10 + _seed % 5);
+        var loot = GenerateSpawns(grid, width, height, "Loot", localRng, count: 5 + _seed % 3);
+
         return new GeneratedLevel
         {
             Tiles = grid,
             EnemySpawns = enemies,
             LootSpawns = loot,
-            PlayerStart = new Vec3I(playerX, playerY, 0),
-            Name = "Wilderness Area"
+            PlayerStart = playerStart,
+            Name = $"Wilderness (Seed: {_seed})"
         };
     }
-    
-    private EntityDefinition[] GenerateEnemySpawns(TileData[,] grid, int width, int height, Random rng)
+
+    private GeneratedLevel ConvertDungeonLevel(GeneratedLevel dungeon, int width, int height)
     {
-        var enemies = new List<EntityDefinition>();
-        int enemyCount = (width * height) / 400; // 1 enemy per 400 tiles
+        var grid = new TileData[width, height];
         
-        for (int i = 0; i < enemyCount; i++)
+        // Initialize with void
+        for (int x = 0; x < width; x++)
         {
-            // Find a walkable tile for enemy
-            int ex, ey;
-            int attempts = 0;
-            do
+            for (int y = 0; y < height; y++)
             {
-                ex = rng.Next(width);
-                ey = rng.Next(height);
-                attempts++;
-            } while ((grid[ex, ey].Type != TileType.Ground || grid[ex, ey].Collision == TileCollision.Water) && attempts < 100);
-            
-            if (attempts < 100)
-            {
-                enemies.Add(new EntityDefinition
-                {
-                    Type = "WildernessEnemy",
-                    Name = $"WildernessEnemy_{i}",
-                    ComponentData =
-                    {
-                        ["position"] = new Vec3I(ex, ey, 0)
-                    }
-                });
+                grid[x, y] = TileVoid;
             }
         }
+
+        // Copy dungeon tiles
+        int dw = dungeon.Tiles.GetLength(0);
+        int dh = dungeon.Tiles.GetLength(1);
         
-        return enemies.ToArray();
+        for (int x = 0; x < Math.Min(width, dw); x++)
+        {
+            for (int y = 0; y < Math.Min(height, dh); y++)
+            {
+                var dungeonTile = dungeon.Tiles[x, y];
+                TileData tile = dungeonTile.Type switch
+                {
+                    TileType.Wall => TileForest,
+                    TileType.Floor => TileGrass,
+                    TileType.Water => TileWater,
+                    TileType.Door => TileGrass, // Treat doors as walkable
+                    _ => TileVoid
+                };
+                grid[x, y] = tile;
+            }
+        }
+
+        return new GeneratedLevel
+        {
+            Tiles = grid,
+            EnemySpawns = dungeon.EnemySpawns,
+            LootSpawns = dungeon.LootSpawns,
+            PlayerStart = dungeon.PlayerStart,
+            Name = dungeon.Name
+        };
     }
-    
-    private EntityDefinition[] GenerateLootSpawns(TileData[,] grid, int width, int height, Random rng)
+
+    private float GetElevation(int x, int y, int width, int height)
     {
-        var loot = new List<EntityDefinition>();
-        int lootCount = (width * height) / 300; // 1 loot per 300 tiles
+        // Simple noise using sine waves
+        float nx = (float)x / width;
+        float ny = (float)y / height;
         
-        for (int i = 0; i < lootCount; i++)
+        float e = 0.5f;
+        e += 0.3f * MathF.Sin(nx * 3.14159f * 2.0f);
+        e += 0.2f * MathF.Cos(ny * 3.14159f * 3.0f);
+        e += 0.1f * MathF.Sin((nx + ny) * 3.14159f * 4.0f);
+        
+        return MathF.Min(MathF.Max(e, 0f), 1f);
+    }
+
+    private float GetMoisture(int x, int y, int width, int height)
+    {
+        float nx = (float)x / width;
+        float ny = (float)y / height;
+        
+        float m = 0.5f;
+        m += 0.3f * MathF.Cos(nx * 3.14159f * 2.5f);
+        m += 0.2f * MathF.Sin((ny * 2.0f + nx) * 3.14159f);
+        
+        return MathF.Min(MathF.Max(m, 0f), 1f);
+    }
+
+    private Vec3I FindPlayerStart(TileData[,] grid, int width, int height)
+    {
+        // Find a floor tile (walkable, not wall)
+        for (int x = 1; x < width - 1; x++)
         {
-            // Find a walkable tile for loot
-            int lx, ly;
-            int attempts = 0;
-            do
+            for (int y = 1; y < height - 1; y++)
             {
-                lx = rng.Next(width);
-                ly = rng.Next(height);
-                attempts++;
-            } while ((grid[lx, ly].Type != TileType.Ground || grid[lx, ly].Collision == TileCollision.Water) && attempts < 100);
-            
-            if (attempts < 100)
-            {
-                loot.Add(new EntityDefinition
+                if (grid[x, y].Type == TileType.Floor && grid[x, y].Collision != TileCollision.Solid)
                 {
-                    Type = "WildernessLoot",
-                    Name = $"WildernessLoot_{i}",
-                    ComponentData =
-                    {
-                        ["position"] = new Vec3I(lx, ly, 0)
-                    }
-                });
+                    return new Vec3I(x, y, 0);
+                }
             }
         }
         
-        return loot.ToArray();
+        // Fallback to center
+        return new Vec3I(width / 2, height / 2, 0);
+    }
+
+    private EntityDefinition[] GenerateSpawns(TileData[,] grid, int width, int height, string type, Random rng, int count)
+    {
+        var spawns = new List<EntityDefinition>();
+        
+        for (int i = 0; i < count; i++)
+        {
+            // Find a random walkable position
+            int x, y;
+            do
+            {
+                x = rng.Next(1, width - 1);
+                y = rng.Next(1, height - 1);
+            } while (grid[x, y].Type == TileType.Wall || grid[x, y].Collision == TileCollision.Solid);
+            
+            spawns.Add(new EntityDefinition
+            {
+                Type = type,
+                Name = $"{type}_{i}"
+            });
+            spawns[^1].ComponentData["position"] = new Vec3I(x, y, 0);
+        }
+        
+        return spawns.ToArray();
     }
 }

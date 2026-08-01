@@ -1,9 +1,13 @@
+# Build outputs
 bin/
 obj/
-*.csproj.user
-.sln.user
-.idea/
+publish/
+
+# IDE
 .vs/
-.DS_Store
-*.log
-.env
+*.suo
+*.user
+
+# Docs
+QUALITY_AUDIT.md
+SECURITY_REMEDIATION.md

@@ -1,7 +1,6 @@
 using OpenTK.Mathematics;
 using OpenTK.Graphics.OpenGL;
 using Djurspel.Core;
-using System.Runtime.CompilerServices;
 
 namespace Djurspel.Graphics;
 
@@ -14,6 +13,8 @@ public class SpriteBatchRenderer : IDisposable
     private readonly int _vertexBuffer;
     private readonly int _indexBuffer;
     private readonly int _shaderProgram;
+    private Matrix4 _projMatrix;
+    private Matrix4 _viewMatrix;
     
     private const int MaxVertices = 65536; // 64K vertices per batch
     private const int MaxIndices = MaxVertices / 2; // 32K indices (quads)
@@ -25,8 +26,10 @@ public class SpriteBatchRenderer : IDisposable
     private bool _batchStarted;
     private Vector4 _currentColor = Vector4.One;
 
-    public SpriteBatchRenderer()
+    public SpriteBatchRenderer(Matrix4 projMatrix, Matrix4 viewMatrix)
     {
+        _projMatrix = projMatrix;
+        _viewMatrix = viewMatrix;
         _vertexBuffer = GL.GenBuffer();
         _indexBuffer = GL.GenBuffer();
         _vertices = new float[MaxVertices * 9];
@@ -110,7 +113,7 @@ public class SpriteBatchRenderer : IDisposable
         _currentColor = Vector4.One;
     }
 
-    public void EndBatch(IShaderManager? shaderManager = null)
+    public void EndBatch()
     {
         if (!_batchStarted)
             return;
@@ -141,11 +144,17 @@ public class SpriteBatchRenderer : IDisposable
         // Use our shader program
         GL.UseProgram(_shaderProgram);
         
-        // Get uniform locations
+        // Set projection and view matrices DIRECTLY on our shader program
         int projLoc = GL.GetUniformLocation(_shaderProgram, "uProjection");
         int viewLoc = GL.GetUniformLocation(_shaderProgram, "uView");
         
-        // We'll set these from the calling code
+        if (projLoc >= 0 && viewLoc >= 0)
+        {
+            // Set the ACTUAL matrices (NOT empty ones!)
+            GL.UniformMatrix4(projLoc, false, ref _projMatrix);
+            GL.UniformMatrix4(viewLoc, false, ref _viewMatrix);
+        }
+        
         GL.DrawElements(PrimitiveType.Triangles, _indexCount, DrawElementsType.UnsignedShort, 0);
         
         // Reset attribute pointers
