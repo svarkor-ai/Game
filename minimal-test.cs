@@ -1,10 +1,14 @@
 // Minimal test: OpenTK GameWindow that just clears to blue
+// NOTE: This file is kept separate from the main solution to avoid
+// duplicate entry point conflicts. Build it directly:
+//   dotnet build minimal-test.csproj
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using OpenTK.Mathematics;
 using OpenTK.Graphics.OpenGL;
+using System;
 
-class Program
+class MinimalTestProgram
 {
     static void Main()
     {
@@ -17,7 +21,7 @@ class Program
                 StartVisible = false,
             });
 
-        window.Load += (s, e) =>
+        window.Load += delegate
         {
             Console.WriteLine("=== OPENGL LOADED ===");
             var version = GL.GetString(StringName.Version);
@@ -25,7 +29,7 @@ class Program
             GL.ClearColor(0f, 0f, 1f, 1f); // Blue
         };
 
-        window.RenderFrame += (s, e) =>
+        window.RenderFrame += (e) =>
         {
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             window.SwapBuffers();
