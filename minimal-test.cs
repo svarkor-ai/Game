@@ -36,6 +36,19 @@ class MinimalTestProgram
             Console.WriteLine("=== FRAME RENDERED ===");
         };
 
+        // Run only 10 frames then exit (headless-friendly)
+        int frames = 0;
+        window.RenderFrame += (e) =>
+        {
+            frames++;
+            Console.WriteLine($"Frame {frames}");
+            if (frames >= 10)
+            {
+                Console.WriteLine("=== DONE — exiting after 10 frames ===");
+                window.Close();
+            }
+        };
+
         window.Run();
     }
 }

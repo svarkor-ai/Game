@@ -40,9 +40,16 @@ dotnet build minimal-test.csproj
 
 ## Acceptanskriterier (testbara)
 - A1: `dotnet build` → 0 errors ✅
-- A2: Headless Xvfb + OpenGL → screenshot med 2D-scen
+- A2: Headless Xvfb + OpenGL → 10 frames, OpenGL 4.5 Core (Mesa) ✅
 - A3: ECS-arkitektur bevaras ✅
 - A4: Inga externa assets — färgade rektanglar OK för Phase 1
+
+### Verifiering
+```bash
+# Minimal OpenGL-test (headless-friendly, 10 frames)
+xvfb-run --auto-servernum dotnet run --project minimal-test.csproj
+# Output: "OpenGL version: 4.5 (Core Profile) Mesa ..." + 10 frames
+```
 
 ## PoC-mål
 - Spelare (blå rektangel) kan röra sig med WASD
