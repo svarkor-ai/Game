@@ -22,6 +22,8 @@ public class GameWindow : OTK.GameWindow, IGameWindow
     private readonly HashSet<int> _pressedKeys = new();
     private readonly HashSet<int> _pressedButtons = new();
     private float _frameTime = 0;
+    private int _renderFrameCount = 0;
+    private string? _headlessScreenshotPath = null;
 
     public GameWindow(IRenderer renderer, IShaderManager shaderManager, ICamera camera, int width = 1280, int height = 720)
           : base(new OTK.GameWindowSettings(), new OTK.NativeWindowSettings
@@ -36,6 +38,12 @@ public class GameWindow : OTK.GameWindow, IGameWindow
          _camera = camera;
          _updateFrameCallback = _ => { }; // default no-op
      }
+
+    /// <summary>Set path for headless auto-screenshot (saved on frame 10).</summary>
+    public void SetHeadlessScreenshotPath(string path)
+    {
+        _headlessScreenshotPath = path;
+    }
 
     /// <summary>
     /// Set renderer and shader manager after window creation.
@@ -84,12 +92,33 @@ public class GameWindow : OTK.GameWindow, IGameWindow
             Console.Error.WriteLine("[GameWindow.OnUpdateFrame] WARNING: _updateFrameCallback is NULL!");
     }
 
-    protected override void OnRenderFrame(FrameEventArgs e)
+   protected override void OnRenderFrame(FrameEventArgs e)
     {
         base.OnRenderFrame(e);
         // Only swap buffers — BeginScene() is called in OnUpdateFrame BEFORE rendering.
         // Do NOT call BeginScene() here or it will clear the frame we just drew!
-        SwapBuffers();
+        
+        // Auto-screenshot on frame 10 in headless mode
+        _renderFrameCount++;
+        if (_renderFrameCount == 10 && _headlessScreenshotPath != null)
+        {
+            // Read the back buffer BEFORE swapping (where the frame was just drawn)
+            // Force GPU synchronization — critical for llvmpipe/Xvfb
+            OSG.GL.ReadBuffer(OSG.ReadBufferMode.Back);
+            OSG.GL.Flush();
+            OSG.GL.Finish();
+            CaptureFramebufferToPng(_headlessScreenshotPath!);
+            Console.Error.WriteLine("[GameWindow] Screenshot captured, now swapping...");
+            SwapBuffers();
+            Console.Error.WriteLine("[GameWindow] Screenshot saved to " + _headlessScreenshotPath);
+            _headlessScreenshotPath = null;
+            // Close the window after taking screenshot in headless mode
+            Close();
+        }
+        else
+        {
+            SwapBuffers();
+        }
     }
 
     public void Render()
@@ -174,6 +203,28 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         Run();
     }
 
+    /// <summary>Take a single headless screenshot without a full game loop.</summary>
+    public void TakeHeadlessScreenshot(string outputPath, int frames = 10)
+    {
+        SetHeadlessScreenshotPath(outputPath);
+        
+        // Manually run the frame loop — OnRenderFrame may not fire in Xvfb with Run()
+        for (int i = 0; i < frames; i++)
+        {
+            // Call the actual OnUpdateFrame override (not base)
+            Update();
+            var updateCB = _updateFrameCallback;
+            if (updateCB != null)
+                updateCB(1.0 / 60.0);
+            
+            // Call OnRenderFrame logic directly (not just SwapBuffers via Render())
+            // This is critical — OnRenderFrame has the ReadPixels logic at frame 10
+            OnRenderFrame(new FrameEventArgs(1.0 / 60.0));
+        }
+        
+        Console.Error.WriteLine("[GameWindow] Headless screenshot done, frames=" + frames);
+    }
+
     public void Update()
     {
         var cameraPos = _camera.Position;
@@ -224,6 +275,116 @@ public class GameWindow : OTK.GameWindow, IGameWindow
         pos.X -= delta.X * 0.5f;
         pos.Z -= delta.Y * 0.5f;
         _camera.Position = pos;
+    }
+
+    #endregion
+
+    #region Framebuffer Screenshot (OpenGL ReadPixels → BMP)
+
+    /// <summary>Read OpenGL back framebuffer and save as BMP (no external tools needed).</summary>
+    private void CaptureFramebufferToPng(string outputPath)
+    {
+        try
+        {
+            int w = Size.X;
+            int h = Size.Y;
+            int rowSize = w * 3;
+            int paddedRowSize = (rowSize + 3) & ~3; // row must be multiple of 4
+            int imageSize = paddedRowSize * h;
+            int fileSize = 54 + imageSize; // 54-byte BMP header + pixel data
+
+            Console.Error.WriteLine($"[GameWindow] CaptureFramebufferToPng: {w}x{h}, imageSize={imageSize}, path={outputPath}");
+
+            // Explicitly read from BACK buffer (where GL draws)
+            OSG.GL.ReadBuffer(OSG.ReadBufferMode.Back);
+            byte[] pixels = new byte[imageSize];
+            OSG.GL.ReadPixels(0, 0, w, h, OSG.PixelFormat.Rgb, OSG.PixelType.UnsignedByte, pixels);
+            
+            // Also check for OpenGL errors
+            OSG.GL.Finish();
+            int err;
+            List<string> errors = new();
+            while ((err = (int)OSG.GL.GetError()) != 0)
+            {
+                errors.Add($"GL_ERROR: {err}");
+            }
+            if (errors.Count > 0)
+                Console.Error.WriteLine("[GameWindow] GL errors during capture: " + string.Join(", ", errors));
+            
+            Console.Error.WriteLine($"[GameWindow] ReadPixels: read {pixels.Length} bytes, first 10: {string.Join(",", pixels.Take(10))}");
+
+            // Analyze unique colors (sample every 1000th pixel for speed)
+            var uniqueColors = new System.Collections.Generic.HashSet<string>();
+            int sampledCount = 0;
+            int zeroCount = 0;
+            for (int i = 0; i < pixels.Length; i += 3)
+            {
+                int r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+                if (r == 0 && g == 0 && b == 0) zeroCount++;
+                uniqueColors.Add($"{r},{g},{b}");
+                sampledCount++;
+            }
+            Console.Error.WriteLine($"[GameWindow] ReadPixels analysis: sampled={sampledCount}, zeros={zeroCount}, unique_colors={uniqueColors.Count}");
+            var topColors = uniqueColors.Take(20).ToList();
+            Console.Error.WriteLine($"[GameWindow] Top colors: {string.Join(" | ", topColors)}");
+
+            // Flip vertically (OpenGL stores bottom-to-top)
+            byte[] flipRow = new byte[paddedRowSize];
+            for (int y = 0; y < h / 2; y++)
+            {
+                int top = y * paddedRowSize;
+                int bottom = (h - 1 - y) * paddedRowSize;
+                Array.Copy(pixels, top, flipRow, 0, paddedRowSize);
+                Array.Copy(pixels, bottom, pixels, top, paddedRowSize);
+                Array.Copy(flipRow, 0, pixels, bottom, paddedRowSize);
+            }
+
+            // Pad rows (add zero bytes to make each row multiple of 4 bytes)
+            byte[] paddedPixels = new byte[imageSize];
+            for (int y = 0; y < h; y++)
+            {
+                Array.Copy(pixels, y * rowSize, paddedPixels, y * paddedRowSize, rowSize);
+            }
+
+            // Write BMP header
+            Console.Error.WriteLine("[GameWindow] Writing BMP file...");
+            using var fs = System.IO.File.Create(outputPath);
+            using var bw = new System.IO.BinaryWriter(fs);
+
+            // BM signature
+            bw.Write((byte)'B');
+            bw.Write((byte)'M');
+            // File size
+            bw.Write(fileSize);
+            bw.Write((short)0); // reserved
+            bw.Write((short)0); // reserved
+            // Offset to pixel data
+            bw.Write(54);
+            // DIB header size (BITMAPINFOHEADER)
+            bw.Write(40);
+            // Width and height
+            bw.Write(w);
+            bw.Write(h);
+            // Planes (1) and bits per pixel (24)
+            bw.Write((short)1);
+            bw.Write((short)24);
+            // Compression (0 = none), image size, resolution
+            bw.Write(0);
+            bw.Write(imageSize);
+            bw.Write(2835); // horizontal resolution (72 DPI)
+            bw.Write(2835); // vertical resolution
+            bw.Write(0);    // colors in table
+            bw.Write(0);    // important colors
+
+            Console.Error.WriteLine("[GameWindow] BMP header written. Writing pixels...");
+            bw.Write(paddedPixels);
+            bw.Flush();
+            Console.Error.WriteLine("[GameWindow] BMP file written successfully: " + fileSize + " bytes");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[GameWindow] ERROR in CaptureFramebufferToPng: " + ex.ToString());
+        }
     }
 
     #endregion
