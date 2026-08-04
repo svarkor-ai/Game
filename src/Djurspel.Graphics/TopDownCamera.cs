@@ -82,7 +82,7 @@ public class TopDownCamera : ICamera
     public Matrix4 GetProjectionMatrix()
     {
         float aspectRatio = _windowWidth / (float)_windowHeight;
-        float viewSize = 10.0f * _zoom;
+        float viewSize = 25.0f * _zoom;
         float frustumWidth = viewSize * aspectRatio;
         float frustumHeight = viewSize;
 
@@ -101,11 +101,11 @@ public class TopDownCamera : ICamera
     /// </summary>
     public Matrix4 GetViewMatrix()
     {
-        // Top-down view: camera looks down the -Z axis
-        // Position is in XY plane, we add a fixed Z offset for height
+        // Top-down view: camera looks straight down along -Z axis
+        // Camera is above the play field at Z=20, looking down at Z=0
         Vector3 cameraPos = new(_position2d.X, _position2d.Y, 20.0f);
         Vector3 lookAt = new(_position2d.X, _position2d.Y, 0.0f);
-        Vector3 up = new(0, 0, 1); // Z-axis is up in our top-down view
+        Vector3 up = new(0, -1, 0); // "up" in the screen plane is -Y direction
 
         _viewMatrix = Matrix4.LookAt(cameraPos, lookAt, up);
         return _viewMatrix;
@@ -118,7 +118,7 @@ public class TopDownCamera : ICamera
     public Vector3 ScreenToWorld(Vector2 screenPos)
     {
         float aspectRatio = _windowWidth / (float)_windowHeight;
-        float viewSize = 10.0f * _zoom;
+        float viewSize = 25.0f * _zoom;
         float frustumWidth = viewSize * aspectRatio;
         float frustumHeight = viewSize;
 
@@ -139,7 +139,7 @@ public class TopDownCamera : ICamera
     public Vector2 WorldToScreen(Vector3 worldPos)
     {
         float aspectRatio = _windowWidth / (float)_windowHeight;
-        float viewSize = 10.0f * _zoom;
+        float viewSize = 25.0f * _zoom;
         float frustumWidth = viewSize * aspectRatio;
         float frustumHeight = viewSize;
 

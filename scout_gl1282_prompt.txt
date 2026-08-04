@@ -1,0 +1,50 @@
+## Djurspel Headless Rendering — GL Error 1282 Felsökning
+
+Du är **Artemis** (scout/research). Din uppgift: diagnostisera varför `SpriteBatchRenderer.EndBatch()` i Djurspel får `GL_INVALID_OPERATION (1282)` FERE `DrawElements`.
+
+### Context
+Djurspel är ett .NET/OpenTK 4.8.2 spel som ska köras headless i Xvfb (:99) med llvmpipe (software rendering). Screenshoten är svart p.g.a. GL error 1282 som förhindrar rendering.
+
+### Known State
+- **NaN-problemet är FIXAT**: `TopDownCamera.GetViewMatrix` returnerar nu `view.M11 = -1.00` (inte NaN)
+- **GL_INVALID_OPERATION (1282) uppstår FÖRE `DrawElements`** — det är "sticky" OpenGL error som samlas på sig
+- Programmet körs med `xvfb-run` eller med `DISPLAY=:99`
+- llvmpipe stödjer OpenGL 3.0+ (kan stödja 4.5 men software-rendering)
+- OpenTK 4.8.2, Core Profile
+
+### Kritiska filer att läsa:
+1. `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/SpriteBatchRenderer.cs` — Renderingslogik
+2. `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/TopDownCamera.cs` — Kamera (NaN-fixad)
+3. `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Program/ARPGGameBootstrapper.cs` — Bootstrapper/renderloop
+4. `/home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/GameWindow.cs` — Fönster/screenshot
+
+### Vad vi vet
+- Debug-loggar visar: `GL Error BEFORE DrawElements: 1282`
+- Felkällan kan vara:
+  1. Vertex attribut-arrays inte korrekt konfigurerade för core profile (glEnableVertexAttribArray kan returnera 1282 om context inte är korrekt)
+  2. VAO-problem (inget VAO används explicit)
+  3. GLDrawElements med `uint` som inte stöds korrekt av llvmpipe
+  4. Uniform-set-operation (`GLUniformMatrix4`) som misslyckas
+  5. `GLBufferData` med `sizeof(float)` som felaktigt beräknas
+
+### Ditt arbete
+1. **Läs alla fyra filerna** (hela filerna)
+2. **Analysera SpriteBatchRenderer.EndBatch()** — varje GL-anrop i ordning
+3. **Identifiera exakt vilken GL-operation som returnerar 1282**
+4. **Ge en konkret fix** — exakt kodändring för att lösa problemet
+5. **Bygg och testa** — kompilerat och kör headless-screenshot
+
+### Viktigt
+- Du får gärna använda terminalkommandon för att bygga/köra
+- Kontrollera att Xvfb kör (`ps aux | grep xvfb`)
+- Efter fix: bygg med `dotnet build` och kör headless-screenshot
+- Verifiera att PNG:n inte är svart (använd Python/PIL för att kolla unika färger)
+
+### When done, END your reply with exactly this block and nothing after it:
+--- RESULT ---
+STATUS: DONE | BLOCKED
+FILES: <paths you created/changed, one per line, or "none">
+DID: <what you did, <=4 lines>
+VERIFY: <the check you ran + its outcome, or "not run">
+BLOCKERS: <concrete blocker, or "none">
+--- END ---

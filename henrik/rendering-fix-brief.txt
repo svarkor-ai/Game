@@ -1,0 +1,80 @@
+Du är Henrik, spelutvecklare på Djurspel-projektet. Detta är en fortsättning på jobbet 114.
+
+## MÅL
+Felsöka och fixa varför sprites inte syns i Djurspel vid headless körning (Xvfb :99).
+Målet är en fungerande screenshot med renderade sprites och korrekta färger.
+
+## ARBETSBEDINGELSER
+- Läs och följ färdiga instruktioner noggrant.
+- Använd `dotnet` från `/home/svarkor/.dotnet/dotnet` (version 8.x).
+- Arbeta i `/home/svarkor/svarkor-builds/djurspel/`.
+- Bygg med: `cd /home/svarkor/svarkor-builds/djurspel && dotnet build`
+- Kör med: `DISPLAY=:99 dotnet run --project src/Djurspel.Program/Djurspel.Program.csproj -- --headless --screenshot /tmp/djurspel_test.png`
+- Xvfb på display :99 ska vara igång. Om inte, starta: `Xvfb :99 -screen 0 1280x720x24 &`
+
+## KONTXT — Vad vi vet hittills
+
+### Probelm
+Scrennshotn blir SVART (0,0,0) istället för att visa grid, sprites och spelare.
+
+### Vad som VERIFIERATS fungera
+- OpenTK 4.8.2 + llvmpipe + Xvfb :99 = fungerar (testat med gltest8)
+- gltest8 (enkel SpriteBatchRenderer-klon) visar 3 unika färder korrekt:
+  - Bakgrund: (26,26,38) — 792000 pixlar
+  - Spelare (röd): (255,0,0) — 5184 pixlar
+  - Mark (grön): (102,153,51) — 124416 pixlar
+- gltest8 använder EXAKT samma shader-logik som Djurspels SpriteBatchRenderer
+- Djurspel loggar 81 DrawQuad-anrop per frame (stämmer med grid)
+- TopDownCamera frustum PATCHAS till viewSize=25.0 (räcker för grid från -20 till 20)
+- Inga OpenGL-fel kastas (GL.GetError == 0)
+
+### HITTAD ROTORSAK — gltest8 vs Djurspel-flödet
+I `gltest8` (som fungerar):
+  1. GL.Clear() med clear color
+  2. SpriteBatchRenderer.DrawQuad() → EndBatch()
+  3. GL.ReadPixels() ← läser av bufferten
+  4. window.SwapBuffers()
+
+I Djurspel (som INTE fungerar):
+  1. GL.Clear() i ARPGGameBootstrapper.Render() rad 219
+  2. SpriteBatchRenderer.DrawQuad() → EndBatch()
+  3. **Renderer.Render() ANROPAS** som KALLAR GL.Clear() PÅNYT (rad 123 i Renderer.cs)
+  4. ReadPixels() ← läser en buffer som nyligen rensats!
+
+Renderer.cs rad 123:
+  GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+Detta RENSAR bufferten EFTER sprites ritats men FÖRE ReadPixels.
+Det är orsaken till varför skärmen blir svart.
+
+## DIN UPPGIFT
+
+### Steg 1: Implementera fixen
+Ta bort eller flytta `GL.Clear()` från `Renderer.Render()` (rad 123 i `Renderer.cs`).
+Alternativt: lägg till `GL.Clear()` i `ARPGGameBootstrapper.Render()` EFTER `Renderer.Render()`.
+
+Vald strategi: Ta bort `GL.Clear()` från `Renderer.Render()` eftersom `ARPGGameBootstrapper.Render()` redan gör en clear innan sprites ritas. Renderer.Render() ska bara rita 3D-objekt på befintlig buffer.
+
+### Steg 2: Bygg och testa
+- Kör headless-screenshot igen
+- Analysera färgerna i output (samma färganalys som gltest8)
+- Screenshoten ska visa:
+  - Grått grid/bakgrund (0.2, 0.2, 0.25)
+  - Röda/enfärgade sprites (spelare, fiender, loot)
+  - Flera unika färder, inte bara svart
+
+### Steg 3: Validera
+- Kör gltest8 fortfarande? (jämför)
+- Kontrollera att inga OpenGL-fel kastas
+- Kontrollera att antalet quads är rätt (81 grid + sprites)
+
+### Steg 4: Rapportera RESULT
+Följ RESULT-schema nedan.
+
+--- RESULT ---
+STATUS: DONE | BLOCKED
+FILES: <path>
+DID: <vad du ändrade, <=4 lines>
+VERIFY: <vad du testade + resultat>
+BLOCKERS: <konkret blocker, eller "none">
+--- END ---

@@ -374,17 +374,34 @@ RISK 6: InputManager already exists
      kan krava specialbehandling)
 
 ============================================================
-9. RESULTAT
+9. STATUS — UPPDATERAD 2026-08-01
 ============================================================
 
-NAR godkant:
-  1. Codex/Teddy skapar filerna i ordning (steg 1 -> 9)
-  2. `dotnet build` -> 0 errors
-  3. Xvfb-screenshot verifierar A2
-  4. Manuell test: WASD movement, 2 fiender wander/attack,
-     loot-drop-pickup med E
+GENOMFORDES:
+  STEG 1: TopDownCamera — VERIFIERAD (finns, fungerar med GetProjectionMatrix/GetViewMatrix)
+  STEG 2: SpriteBatchRenderer — VERIFIERAD (DrawQuad, shader-integration, BeginBatch/EndBatch)
+  STEG 3-4: Renderer patches — VERIFIERAD (DrawTileMapTopDown finns, DrawEntityTopDown finns)
+  STEG 5: EnemyAI — VERIFIERAD + UPPGRADERAD (Update() returnerar int damage, UpdateAttack() returnerar Damage, TakeDamage(), 4 fiendetyper med olika stats)
+  STEG 6: LootDropSystem — VERIFIERAD (DropLoot, Update med pickupRange, GetItems(), LootItem med IsCollected)
+  STEG 7: UIManager — VERIFIERAD (UpdateHealthBar, DrawHealthBar, DrawTextOverlay, DrawRect)
+  STEG 8: ARPGInputManager — VERIFIERAD (WASD movement, AttackPressed, InteractPressed, InventoryToggled)
+  STEG 9: ARPGGameBootstrapper — VERIFIERAD + UPPGRADERAD:
+    - T1: SpriteBatchRenderer shader-integration — KORREKT
+    - T2: 2D-quads istället för 3D-cuber — KORREKT (DrawQuad i Render-metoden)
+    - T3: Player damage — IMPLEMENTERAD (fiender returnerar damage via Update(), bootstrappern applicerar på _playerHealth, noodrespawn vid 0 HP)
+    - T4: Loot pickup (E-knapp) — IMPLEMENTERAD (InteractPressed kopplad till loot-systemet, proximity check)
+    - T5: InventorySystem+QuestSystem koppling — IMPLEMENTERAD (loot → inventory items, gold, kill tracking)
 
-BEFINTLIG KOD SOM REANVANDS (60%+ av funktionaliteten finns redan):
+REST:
+  - A2: Xvfb-screenshot (kräver skärm-emulator för att verifiera rendering)
+  - Bygg: dotnet build -> 0 errors, 0 warnings — VERIFIERAD (Release-kompilering klar)
+
+PATCHAR (Program.cs + ARPGGameBootstrapper.cs):
+  - Program.cs: Renderer(1280, 720) istället för null!, TopDownCamera, SpriteBatchRenderer, ARGameBootstrapper
+  - ARPGGameBootstrapper.cs: Fullständig update/render-lipp, player-damage, loot-pickup, inventory-koppling
+
+============================================================
+10. BEFINTLIG KOD SOM REANVANDS (60%+ av funktionaliteten finns redan):
   - Math2D, EventDispatcher, Entity/Registry/Components (ALLA)
   - CombatManager, InventoryManager (ALLA)
   - TileMap, RoomDungeonGenerator (ALLA)

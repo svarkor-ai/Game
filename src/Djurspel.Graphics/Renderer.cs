@@ -569,7 +569,7 @@ public class Renderer : IRenderer
     private void SetUniformMat4(int prog, string name, ref Matrix4 mat)
     {
         int loc = GL.GetUniformLocation(prog, name);
-        if (loc >= 0) GL.UniformMatrix4(loc, false, ref mat);
+        if (loc >= 0) GL.UniformMatrix4(loc, true, ref mat);
     }
 
     private void SetUniform4(int prog, string name, Vector4 color)

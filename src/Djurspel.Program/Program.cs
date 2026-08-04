@@ -10,31 +10,56 @@ namespace Djurspel.Program
         private ARPGGameBootstrapper? _bootstrapper;
         private GameWindow? _gameWindow;
         private ShaderManager? _shaderManager;
+        private Renderer? _renderer;
+        private TopDownCamera? _camera;
         private bool _disposed;
 
         public ARPGGameEngine()
         {
             // Initialize shader manager first
             _shaderManager = new ShaderManager();
-
-            // Create the ARPG bootstrapper
+            _renderer = new Renderer(1280, 720);
+            _camera = new TopDownCamera();
             _bootstrapper = new ARPGGameBootstrapper();
         }
 
+        public string[]? Args { get; set; }
+
         public void Run()
         {
-            // Create game window with the shader manager
+            // Create game window with the shader manager and renderer
             _gameWindow = new GameWindow(
-                renderer: null!,  // Will be set after OpenGL context is created
+                renderer: _renderer!,
                 shaderManager: _shaderManager!,
-                camera: null!,    // Will be set after bootstrapper initializes
+                camera: _camera!,
                 1280, 720);
+
+            // Wire up renderer and shader manager after OpenGL context is created
+            _gameWindow.SetRendererAndShaderManager(_renderer!, _shaderManager!);
 
             // Initialize the ARPG bootstrapper after window exists
             _bootstrapper!.Initialize(_gameWindow, null);
 
             // Wire up the update callback to use the ARPG bootstrapper
             _gameWindow.SetUpdateFrameCallback(OnUpdateFrame);
+
+           // Headless screenshot support
+            if (Args != null && Args.Length > 0)
+            {
+                for (int i = 0; i < Args.Length; i++)
+                {
+                    if (Args[i] == "--screenshot" && i + 1 < Args.Length)
+                    {
+                        _gameWindow.SetHeadlessScreenshotPath(Args[i + 1]);
+                        break;
+                    }
+                }
+            }
+
+            // Start the game loop — this blocks until the window is closed
+            Console.Error.WriteLine("[ARPGGameEngine] Starting game loop...");
+            _gameWindow.Run();
+            Console.Error.WriteLine("[ARPGGameEngine] Game loop finished.");
         }
 
         private void OnUpdateFrame(double deltaTime)
@@ -46,7 +71,8 @@ namespace Djurspel.Program
             _bootstrapper.Update((float)deltaTime);
 
             // Render using the ARPG renderer
-            _bootstrapper.Render(null!, _shaderManager);
+            // Create a dummy renderer for bootstrapper's Render method
+            _bootstrapper.Render(_renderer!, _shaderManager);
         }
 
         public void Dispose()
@@ -61,13 +87,72 @@ namespace Djurspel.Program
     {
         static void Main(string[] args)
         {
-            using var game = new ARPGGameEngine();
-            game.Run();
+            bool headless = false;
+            string screenshotPath = null;
+            foreach (var arg in args)
+            {
+                if (arg == "--headless") headless = true;
+                if (arg == "--screenshot" && screenshotPath == null)
+                {
+                    // Find the next arg
+                }
+            }
+            // Parse --screenshot <path>
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--screenshot" && i + 1 < args.Length)
+                    screenshotPath = args[i + 1];
+            }
 
-            Console.Error.WriteLine("[Program] ARPG Game engine started. Press Enter to stop.");
-            Console.ReadLine();
-
-            game.Dispose();
+            if (headless || screenshotPath != null)
+            {
+                // Headless mode: create window, run few frames, take screenshot, exit
+                Console.Error.WriteLine("[Program] Starting headless mode...");
+                
+                var shaderManager = new ShaderManager();
+                var renderer = new Renderer(1280, 720);
+                var camera = new TopDownCamera();
+                var bootstrapper = new ARPGGameBootstrapper();
+                
+                var gameWindow = new GameWindow(
+                    renderer: renderer,
+                    shaderManager: shaderManager,
+                    camera: camera,
+                    1280, 720);
+                
+                gameWindow.SetRendererAndShaderManager(renderer, shaderManager);
+                bootstrapper.Initialize(gameWindow, null);
+                
+                // Set screenshot path for auto-capture
+                if (screenshotPath != null)
+                    gameWindow.SetHeadlessScreenshotPath(screenshotPath);
+                
+                // Wire update callback
+                Action<double> updateCallback = dt => {
+                    bootstrapper.Update((float)dt);
+                    bootstrapper.Render(renderer, shaderManager);
+                };
+                gameWindow.SetUpdateFrameCallback(updateCallback);
+                
+                // Take screenshot via manual frame loop
+                gameWindow.TakeHeadlessScreenshot(screenshotPath ?? "/tmp/djurspel_headless.png", frames: 15);
+                
+                // Clean up
+                gameWindow.Close();
+                
+                if (screenshotPath != null)
+                    Console.Error.WriteLine("[Program] Screenshot saved to " + screenshotPath);
+                else
+                    Console.Error.WriteLine("[Program] Headless mode done (no screenshot path given).");
+            }
+            else
+            {
+                // Normal interactive mode
+                using var game = new ARPGGameEngine();
+                game.Args = args;
+                game.Run();
+                Console.Error.WriteLine("[Program] ARPG Game engine stopped.");
+            }
         }
     }
 }

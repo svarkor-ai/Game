@@ -85,7 +85,7 @@ public class ShaderManager : IShaderManager
             throw new ArgumentException("Matrix must be 16 floats", nameof(matrix));
 
         int loc = GL.GetUniformLocation(GetCurrentProgram(), name);
-        if (loc >= 0) GL.UniformMatrix4(loc, 1, false, matrix);
+        if (loc >= 0) GL.UniformMatrix4(loc, 1, true, matrix);
     }
 
     public void SetInt(string name, int value)

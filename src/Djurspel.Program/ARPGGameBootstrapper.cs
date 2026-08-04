@@ -101,10 +101,17 @@ public class ARPGGameBootstrapper
         _camera.SetTarget(_playerPosition);
         _camera.Update(frameTime);
         
-        // Update enemies
+       // Update enemies
         foreach (var enemy in _enemies)
         {
-            enemy.Update(frameTime, _playerPosition);
+            int enemyDamage = enemy.Update(frameTime, _playerPosition);
+            
+            // Apply enemy damage to player
+            if (enemyDamage > 0)
+            {
+                _playerHealth = Math.Max(0, _playerHealth - enemyDamage);
+                Console.Error.WriteLine($"[Player] Took {enemyDamage} damage! HP: {_playerHealth}/{_playerMaxHealth}");
+            }
             
             // Check if player attacks enemy
             if (_inputManager.AttackPressed)
@@ -122,6 +129,7 @@ public class ARPGGameBootstrapper
                         
                         // Give gold reward
                         _playerGold += 10;
+                        _inventorySystem!.AddItem(new InventorySystem.Item("Gold", "💰", 999, 0, 0, false));
                         
                         // Respawn enemy elsewhere
                         Random random = new();
@@ -138,18 +146,66 @@ public class ARPGGameBootstrapper
             }
         }
         
-        // Update loot system
-        _lootSystem!.Update(frameTime, _playerPosition);
+        // Update loot system and handle pickup
+        _lootSystem!.Update(frameTime, _playerPosition, 2.0f);
+        
+        // Handle interact (E-key) for loot pickup
+        if (_inputManager.InteractPressed && _inventorySystem != null)
+        {
+            foreach (var loot in _lootSystem!.GetItems())
+            {
+                float dist = Vector2.Distance(_playerPosition, loot.Position);
+                if (dist < 3.0f && !loot.IsCollected)
+                {
+                    loot.IsCollected = true;
+                    
+                    // Add to inventory based on type
+                    if (loot.ItemType == "gold")
+                    {
+                        _playerGold += loot.Value;
+                        _inventorySystem.AddItem(new InventorySystem.Item("Gold", "💰", 999, 0, 0, false));
+                    }
+                    else if (loot.ItemType == "health_potion")
+                    {
+                        _inventorySystem.AddItem(new InventorySystem.Item("Health Potion", "🧪", 5, 0, 50, false));
+                    }
+                    else if (loot.ItemType == "weapon")
+                    {
+                        _inventorySystem.AddItem(new InventorySystem.Item("Weapon", "⚔️", 1, loot.Value, 0, true));
+                    }
+                    else if (loot.ItemType == "armor")
+                    {
+                        _inventorySystem.AddItem(new InventorySystem.Item("Armor", "🛡️", 1, 0, loot.Value, true));
+                    }
+                    break; // Only pickup one at a time
+                }
+            }
+        }
         
         // Update UI
         _uiManager!.Update(frameTime, _inputManager.InventoryToggled);
         _uiManager.UpdateHealthBar(_playerHealth, _playerMaxHealth);
         
-        // Track player health (simplified)
+        // Update player health (simplified)
         if (_playerHealth > 0 && _playerHealth < _playerMaxHealth)
         {
             // Regen health slowly
             _playerHealth = Math.Min(_playerMaxHealth, _playerHealth + (int)(5.0f * frameTime));
+        }
+        else if (_playerHealth <= 0)
+        {
+            // Game over - respawn at full health
+            _playerHealth = _playerMaxHealth;
+            _playerPosition = new Vector2(0, 0);
+            Console.Error.WriteLine("[Player] Respawned after death!");
+        }
+        
+        // Use updated camera matrices — update renderer with fresh matrices
+        if (_camera != null && _spriteRenderer != null)
+        {
+            _projMatrix = _camera.GetProjectionMatrix();
+            _viewMatrix = _camera.GetViewMatrix();
+            _spriteRenderer.SetMatrices(_projMatrix.Value, _viewMatrix.Value);
         }
     }
 
@@ -162,7 +218,7 @@ public class ARPGGameBootstrapper
         GL.ClearColor(0.1f, 0.1f, 0.15f, 1.0f); // Dark background
         GL.Clear(ClearBufferMask.ColorBufferBit);
         
-        // Update camera matrices (they may have changed)
+        // Use updated camera matrices
         _projMatrix = _camera!.GetProjectionMatrix();
         _viewMatrix = _camera!.GetViewMatrix();
         
@@ -206,6 +262,9 @@ public class ARPGGameBootstrapper
         
         // Draw player (blue circle)
         _spriteRenderer.DrawQuad(_playerPosition, new Vector2(0.4f, 0.4f), new Vector4(0.2f, 0.4f, 1.0f, 1.0f));
+        
+        // DEBUG: Force a bright red square at origin to verify rendering works
+        _spriteRenderer.DrawQuad(new Vector2(0f, 0f), new Vector2(2f, 2f), new Vector4(1f, 0f, 0f, 1f));
         
         // End sprite batch
         _spriteRenderer.EndBatch();

@@ -1,0 +1,41 @@
+## Djurspel Headless Rendering — GL Error 1282 Felsökning
+
+### Goal
+Fixera headless-screenshot för Djurspel så att den visar färgat innehåll istället för svart.
+
+### Acceptance Criteria
+- Headless-screenshot visar synligt innehåll (inte svart)
+- Inga GL_INVALID_OPERATION (1282) error vid rendering
+- Screenshoten är en giltig PNG med >1 unik färg
+
+### Known State
+- NaN-problemet i TopDownCamera.GetViewMatrix är **FIXAT** (view.M11 = -1.00, inte NaN)
+- GL_INVALID_OPERATION (1282) uppstår **FÖRE** DrawElements i SpriteBatchRenderer.EndBatch()
+- Felet är "sticky" i OpenGL — det samlas på sig från tidigare anrop
+- Programmet kör i Xvfb (:99) med llvmpipe (software rendering, OpenGL 3.0+)
+- OpenTK 4.8.2, Core Profile
+
+### Files
+- SpriteBatchRenderer: /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/SpriteBatchRenderer.cs
+- TopDownCamera: /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/TopDownCamera.cs
+- ARPGGameBootstrapper: /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Program/ARPGGameBootstrapper.cs
+- GameWindow: /home/svarkor/svarkor-builds/djurspel/src/Djurspel.Graphics/GameWindow.cs
+
+### What's Known
+GL Error 1282 (GL_INVALID_OPERATION) uppstår före DrawElements. Felkällan kan vara:
+1. Vertex attribut-arrays inte korrekt konfigurerade för core profile
+2. VAO-problem (inget VAO används)
+3. GLDrawElements med uint som inte stöds korrekt av llvmpipe
+4. Uniform-set-operation som returnerar error
+
+### Task
+Diagnostisera EXAKT vilken GL-operation som returnerar 1282, fixa felet, bygg, testa med headless-screenshot, och verifiera att den visar färgat innehåll.
+
+### When done, END your reply with exactly this block and nothing after it:
+--- RESULT ---
+STATUS: DONE | BLOCKED
+FILES: <paths you created/changed, one per line, or "none">
+DID: <what you did, <=4 lines>
+VERIFY: <the check you ran + its outcome, or "not run">
+BLOCKERS: <concrete blocker, or "none">
+--- END ---

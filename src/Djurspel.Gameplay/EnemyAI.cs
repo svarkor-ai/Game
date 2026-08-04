@@ -99,53 +99,56 @@ public class EnemyAI
         GenerateWanderTarget();
     }
 
-    public void Update(float frameTime, Vector2 playerPosition)
-    {
-        if (IsDead) return;
+    public int Update(float frameTime, Vector2 playerPosition)
+      {
+          if (IsDead) return 0;
         
-        _attackCooldown = Math.Max(0, _attackCooldown - frameTime);
+          _attackCooldown = Math.Max(0, _attackCooldown - frameTime);
         
-        float distanceToPlayer = Vector2.Distance(Position, playerPosition);
-        bool shouldFlee = Health < MaxHealth * _fleeThreshold;
+          float distanceToPlayer = Vector2.Distance(Position, playerPosition);
+          bool shouldFlee = Health < MaxHealth * _fleeThreshold;
         
-        // State machine
-        switch (CurrentState)
-        {
-            case State.Idle:
-                UpdateIdle(frameTime);
-                break;
-            case State.Wander:
-                UpdateWander(frameTime);
-                break;
-            case State.Chase:
-                UpdateChase(frameTime, playerPosition);
-                break;
-            case State.Attack:
-                UpdateAttack(frameTime, playerPosition);
-                break;
-            case State.Flee:
-                UpdateFlee(frameTime);
-                break;
-        }
+          // State machine
+          int damageDealt = 0;
+          switch (CurrentState)
+          {
+              case State.Idle:
+                  UpdateIdle(frameTime);
+                  break;
+              case State.Wander:
+                  UpdateWander(frameTime);
+                  break;
+              case State.Chase:
+                  UpdateChase(frameTime, playerPosition);
+                  break;
+              case State.Attack:
+                  damageDealt = UpdateAttack(frameTime, playerPosition);
+                  break;
+              case State.Flee:
+                  UpdateFlee(frameTime);
+                  break;
+          }
         
-        // State transitions
-        if (shouldFlee && !IsDead)
-        {
-            CurrentState = State.Flee;
-        }
-        else if (distanceToPlayer <= AttackRange && _attackCooldown <= 0)
-        {
-            CurrentState = State.Attack;
-        }
-        else if (distanceToPlayer <= ChaseRange)
-        {
-            CurrentState = State.Chase;
-        }
-        else if (distanceToPlayer > ChaseRange * 1.5f)
-        {
-            CurrentState = State.Idle;
-        }
-    }
+          // State transitions
+          if (shouldFlee && !IsDead)
+          {
+              CurrentState = State.Flee;
+          }
+          else if (distanceToPlayer <= AttackRange && _attackCooldown <= 0)
+          {
+              CurrentState = State.Attack;
+          }
+          else if (distanceToPlayer <= ChaseRange)
+          {
+              CurrentState = State.Chase;
+          }
+          else if (distanceToPlayer > ChaseRange * 1.5f)
+          {
+              CurrentState = State.Idle;
+          }
+        
+          return damageDealt;
+      }
 
     private void UpdateIdle(float frameTime)
     {
@@ -180,15 +183,16 @@ public class EnemyAI
         Position += Velocity * frameTime;
     }
 
-    private void UpdateAttack(float frameTime, Vector2 playerPosition)
+    private int UpdateAttack(float frameTime, Vector2 playerPosition)
     {
+        int damageDealt = 0;
         if (_attackCooldown <= 0)
         {
             // Attack!
             _attackCooldown = 1.0f;
-            // Return damage that would be dealt
-            // In real implementation, this would damage the player
+            damageDealt = Damage;
         }
+        return damageDealt;
     }
 
     private void UpdateFlee(float frameTime)
