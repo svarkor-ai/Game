@@ -13,6 +13,7 @@ namespace Djurspel.Program
         private Renderer? _renderer;
         private TopDownCamera? _camera;
         private bool _disposed;
+        private string? _screenshotPath;
 
         public ARPGGameEngine()
         {
@@ -24,6 +25,11 @@ namespace Djurspel.Program
         }
 
         public string[]? Args { get; set; }
+
+        public void SetScreenshotPath(string path)
+        {
+            _screenshotPath = path;
+        }
 
         public void Run()
         {
@@ -43,17 +49,10 @@ namespace Djurspel.Program
             // Wire up the update callback to use the ARPG bootstrapper
             _gameWindow.SetUpdateFrameCallback(OnUpdateFrame);
 
-           // Headless screenshot support
-            if (Args != null && Args.Length > 0)
+            // Set screenshot path if provided
+            if (_screenshotPath != null)
             {
-                for (int i = 0; i < Args.Length; i++)
-                {
-                    if (Args[i] == "--screenshot" && i + 1 < Args.Length)
-                    {
-                        _gameWindow.SetHeadlessScreenshotPath(Args[i + 1]);
-                        break;
-                    }
-                }
+                _gameWindow.SetHeadlessScreenshotPath(_screenshotPath);
             }
 
             // Start the game loop — this blocks until the window is closed
@@ -87,12 +86,13 @@ namespace Djurspel.Program
     {
         static void Main(string[] args)
         {
+            // Parse --headless and --screenshot <path> flags
             bool headless = false;
-            string screenshotPath = null;
+            string? screenshotPath = null;
             foreach (var arg in args)
             {
                 if (arg == "--headless") headless = true;
-                if (arg == "--screenshot" && screenshotPath == null)
+                if (arg == "--screenshot")
                 {
                     // Find the next arg
                 }
