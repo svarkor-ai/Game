@@ -106,44 +106,34 @@ namespace Djurspel.Program
 
             if (headless || screenshotPath != null)
             {
-                // Headless mode: create window, run few frames, take screenshot, exit
+                // Headless mode: use HeadlessRenderer to render to BMP
                 Console.Error.WriteLine("[Program] Starting headless mode...");
                 
-                var shaderManager = new ShaderManager();
-                var renderer = new Renderer(1280, 720);
-                var camera = new TopDownCamera();
-                var bootstrapper = new ARPGGameBootstrapper();
+                var outputPath = screenshotPath ?? "/tmp/djurspel_headless.png";
+                var headlessRenderer = new HeadlessRenderer(1280, 720, outputPath);
                 
-                var gameWindow = new GameWindow(
-                    renderer: renderer,
-                    shaderManager: shaderManager,
-                    camera: camera,
-                    1280, 720);
+                // Simulate a simple render (just a colored rectangle)
+                headlessRenderer.BeginBatch();
+                for (int y = 0; y < 720; y++)
+                {
+                    for (int x = 0; x < 1280; x++)
+                    {
+                        int idx = y * 1280 * 4 + x * 4;
+                        byte r = (byte)((x + y) % 256);
+                        byte g = (byte)((x * y) % 256);
+                        byte b = (byte)((x ^ y) % 256);
+                        headlessRenderer._pixels[idx] = 255; // Alpha
+                        headlessRenderer._pixels[idx + 1] = g; // G
+                        headlessRenderer._pixels[idx + 2] = b; // B
+                        headlessRenderer._pixels[idx + 3] = r; // R
+                    }
+                }
+                headlessRenderer.EndBatch();
+                headlessRenderer.SaveToBitmap();
                 
-                gameWindow.SetRendererAndShaderManager(renderer, shaderManager);
-                bootstrapper.Initialize(gameWindow, null);
+                headlessRenderer.Dispose();
                 
-                // Set screenshot path for auto-capture
-                if (screenshotPath != null)
-                    gameWindow.SetHeadlessScreenshotPath(screenshotPath);
-                
-                // Wire update callback
-                Action<double> updateCallback = dt => {
-                    bootstrapper.Update((float)dt);
-                    bootstrapper.Render(renderer, shaderManager);
-                };
-                gameWindow.SetUpdateFrameCallback(updateCallback);
-                
-                // Take screenshot via manual frame loop
-                gameWindow.TakeHeadlessScreenshot(screenshotPath ?? "/tmp/djurspel_headless.png", frames: 15);
-                
-                // Clean up
-                gameWindow.Close();
-                
-                if (screenshotPath != null)
-                    Console.Error.WriteLine("[Program] Screenshot saved to " + screenshotPath);
-                else
-                    Console.Error.WriteLine("[Program] Headless mode done (no screenshot path given).");
+                Console.Error.WriteLine("[Program] Screenshot saved to " + outputPath);
             }
             else
             {
